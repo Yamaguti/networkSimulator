@@ -1,0 +1,50 @@
+set h0 [$simulator host]
+set h1 [$simulator host]
+set h2 [$simulator host]
+set h3 [$simulator host]
+
+set r0 [$simulator router 3]
+set r1 [$simulator router 3]
+
+$simulator duplex-link $h0 $r0.0 10Mbps 10ms
+$simulator duplex-link $h1 $r0.1 5Mbps 2ms
+$simulator duplex-link $r0.2 $r1.0 2Mbps 20ms
+$simulator duplex-link $r1.1 $h2 10Mbps 5ms
+$simulator duplex-link $r1.2 $h3 5Mbps 2ms
+
+$simulator $h0 10.0.0.1 10.0.0.2 192.168.1.1
+$simulator $h1 10.1.1.1 10.1.1.2 192.168.1.1
+$simulator $h2 192.168.2.2 192.168.2.3 192.168.1.1
+
+$simulator $h3 192.168.1.1 192.168.1.2 1.1.1.1
+
+$simulator $r0 0 10.0.0.2 1 10.1.1.2 2 192.168.3.3
+$simulator $r1 0 192.168.3.4 1 192.168.2.3 2 192.168.1.2
+
+$simulator $r0 route 10.0.0.0 0 10.1.1.0 1 192.168.3.0 2 192.168.2.0 \
+192.168.3.4 192.168.1.0 192.168.3.4
+$simulator $r1 route 192.168.3.0 0 192.168.2.0 1 192.168.1.0 2 10.0.0.0 \
+192.168.3.3 10.1.1.0 192.168.3.3
+
+$simulator $r0 performance 100us 0 1000 1 1000 2 1000
+$simulator $r1 performance 20us 0 1000 1 1000 2 1000
+
+set httpc0 [new Agent/HTTPClient]
+set httpc1 [new Agent/HTTPClient]
+set https2 [new Agent/HTTPServer]
+set dns3 [new Agent/DNSServer]
+$simulator attach-agent $httpc0 $h0
+$simulator attach-agent $httpc1 $h1
+$simulator attach-agent $https2 $h2
+$simulator attach-agent $dns3 $h3
+
+set sniffer1 [new Agent/Sniffer]
+set sniffer2 [new Agent/Sniffer]
+$simulator attach-agent $sniffer1 $r0.2 $r1.0 "/tmp/sniffer1"
+$simulator attach-agent $sniffer2 $h1 $r0.1 "/tmp/sniffer2"
+
+$simulator at 0.5 "httpc0 GET h2"
+$simulator at 0.6 "httpc1 GET 192.168.2.2"
+$simulator at 0.6 "httpc1 GET h0"
+$simulator at 0.7 "httpc0 GET h2"
+$simulator at 4.0 "finish" 
