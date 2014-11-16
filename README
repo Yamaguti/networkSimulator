@@ -1,0 +1,69 @@
+#########################################################################
+#                           Desenvolvedores                             #
+#########################################################################
+
+                Daniel Paulino Alves            NUSP 7156894
+                Felipe Yamaguti                 NUSP 7295336
+
+#########################################################################
+#                       Linguagem de Programação                        #
+#########################################################################
+
+    Este programa foi implementado na linguagem python, versão 2.7
+Para instalá-la, basta rodar no terminal:
+
+sudo apt-get update
+sudo apt-get install python2.7
+
+    Optamos por esta linguagem de programação pois ela é atual,
+bastante utilizada e para que, desta forma, pudéssemos conhecê-la melhor.
+
+Também foi decisivo na escolha da linguagem o oferecimento de suporte à
+programação orientada a objetos em python. Nos utilizamos extensamente 
+da criação de classes que representavam as diversas entidades existentes
+no escopo do problema.
+
+#########################################################################
+#                       Execução do Programa                            #
+#########################################################################
+
+    Uma vez que python é uma linguagem interpretada, não escrevemos um
+arquivo Makefile que compilasse o código fonte.
+
+    A execução do programa se dá pela seguinte linha de comando:
+
+    ./simulator file.txt
+
+    onde file.txt é o arquivo de configurações e inicializações do programa
+como foi requerido no enunciado do exercício programa.
+
+#########################################################################
+#                        Arquivos dos Sniffers                          #
+#########################################################################
+
+    O log dos sniffers inseridos na simulação estará presente no mesmo
+diretório que o arquivos de código fonte do simulador.
+
+    Caso o usuário digitou dados com caminhos relativos, o caminho tem
+como base de caminho o diretório contendo os arquivos relativos ao código
+fonte do simulador.
+
+
+#########################################################################
+#                        Comandos do Simulador                          #
+#########################################################################
+
+    Os comandos e a sintaxe do simulador se encontram no enunciado do
+exercício programa. Nosso simulador aceita a entrada exatamente como o
+especificado. Para um melhor entendimento sobre os comandos do simulador,
+veja o enunciado do exercício.
+
+
+#########################################################################
+#                           Saída do Programa                           #
+#########################################################################
+
+    
+
+
+#######################################################################
