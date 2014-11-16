@@ -29,13 +29,10 @@ class EventQueue:
 class Simulator:
     entities = {}
     events = EventQueue()
-    sniffers = []
 
     @staticmethod
     def add_entity(identifier, entity):
         Simulator.entities[identifier] = entity
-        if isinstance(entity, Sniffer):
-            Simulator.sniffers.append(entity)
 
     @staticmethod
     def add_event(new_event):
@@ -48,7 +45,7 @@ class Simulator:
 
     @staticmethod
     def finish():
-        for sniffer in Simulator.sniffers:
+        for sniffer in Entity.get_all(Sniffer):
             sniffer.finish()
 
 
@@ -61,6 +58,12 @@ class Entity:
     @staticmethod
     def get(identifier):
         return Simulator.entities[identifier]
+
+    @staticmethod
+    def get_all(wanted_class):
+        return filter(lambda obj: isinstance(obj, wanted_class),
+                        Simulator.entities.values())
+
 
 
 class Agent(Entity):
@@ -140,6 +143,13 @@ class Link:
 class DNSServer(Agent):
     def __init__(self, word):
         Entity.__init__(self, word)
+        self.table = {}
+
+        for host in Entity.get_all(Host):
+            self.table[host.identifier] = host.ip
+
+    def translate(self, identifier):
+        return self.table[identifier]
 
 
 class HTTPServer(Agent):
