@@ -35,7 +35,7 @@ class Simulator:
     def add_entity(identifier, entity):
         Simulator.entities[identifier] = entity
         if isinstance(entity, Sniffer):
-            sniffers.append(entity)
+            Simulator.sniffers.append(entity)
 
     @staticmethod
     def add_event(new_event):
@@ -48,7 +48,7 @@ class Simulator:
 
     @staticmethod
     def finish():
-        for sniffer in sniffers:
+        for sniffer in Simulator.sniffers:
             sniffer.finish()
 
 
@@ -59,7 +59,7 @@ class Entity:
         Simulator.add_entity(self.identifier, self)
 
     @staticmethod
-    def get(identifier)
+    def get(identifier):
         return Simulator.entities[identifier]
 
 
@@ -76,12 +76,18 @@ class Host(Entity):
     def set_link(self, link):
         self.link = link
 
+    def set_ips(self, my_ip, standard_router, dns_server):
+        self.ip = my_ip
+        self.router_ip = standard_router
+        self.dns_ip = dns_server
+
 
 class Router(Entity):
     def __init__(self, word, interfaces):
         self.link_at_door = [None for each in range(int(interfaces))]
         self.door_ip = [None for each in range(int(interfaces))]
         self.door_limit = [None for each in range(int(interfaces))]
+        self.routing_table = {}
         Entity.__init__(self, word)
 
     def set_delay(self, process_time):
@@ -95,6 +101,17 @@ class Router(Entity):
 
     def set_link(self, door_number, link):
         self.link_at_door[int(door_number)] = link
+
+    def update_table(self, origin, destination):
+        key = origin[0: origin.rfind('.')]
+        self.routing_table[key] = destination
+
+    def route_to_link(self, origin):
+        key = origin[0: origin.rfind('.')]
+        while '.' in self.routing_table[key]:
+            key = self.routing_table[key][0: origin.rfind('.')]
+        port = self.routing_table[key]
+        return self.link_at_door[port]
 
 
 
@@ -152,7 +169,7 @@ class Sniffer(Entity):
     def prepare(self, entity_list, file_name):
         entity = Entity.get(entity_list[0])
         if len(entity_list) > 1: # [router, port]
-            link = entity.link_at_door[entity_list[1]]
+            link = entity.link_at_door[int(entity_list[1])]
         else: # [host]
             link = entity.link
         link.add_sniffer(self)
@@ -191,17 +208,17 @@ class Reader:
     def instantiate(self, line):
         tokens = line.split()
         if '[$simulator host]' in line:
-            return Host(tokens[1])
+            Host(tokens[1])
         elif '[$simulator router ' in line:
-            interfaces = s.split()[2].replace(']', '')
-            return Router(tokens[1], interfaces)
+            interfaces = tokens[4].replace(']', '')
+            Router(tokens[1], interfaces)
         elif '[new Agent/' in line:
             # gets class name
             beginning = line.find('[new Agent/') + len('[new Agent/')
             end = line.find(']', beginning)
             agent = line[beginning:end]
             # instantiates object given its class name
-            return globals()[agent](tokens[1])
+            globals()[agent](tokens[1])
 
     def update_entities(self, line):
         tokens = line.replace('$', '').split()
@@ -212,24 +229,36 @@ class Reader:
                 router.set_limit(tokens[k], tokens[k + 1])
 
         elif '$simulator duplex-link ' in line:
-            Mbps = tokens[4].[:len(tokens[4]) - 4]
-            delay = tokens[5].[:len(tokens[5]) - 2]
+            Mbps = tokens[4][:len(tokens[4]) - 4]
+            delay = tokens[5][:len(tokens[5]) - 2]
             Link(tokens[2].split('.'), tokens[3].split('.'), Mbps, delay)
 
         elif '$simulator attach-agent ' in line:
             if len(tokens) > 4:
                 sniffer = Entity.get(tokens[2])
-                sniffer.set(tokens[3].split('.'),
+                sniffer.prepare(tokens[3].split('.'),
                             tokens[5].replace('"', ''))
             else:
                 Entity.get(tokens[2]).attach_to(tokens[3])
 
         elif ' route ' in line:
-            print 'route'
+            router = Entity.get(tokens[1])
+            for k in range(3, len(tokens), 2):
+                router.update_table(tokens[k], tokens[k + 1])
 
-        elif '$Simulator at ' in line:
+        elif '$simulator at ' in line:
             tokens = line.split(' ', 3)
             Event(tokens[2], tokens[3].replace('"', ''))
+
+        elif len(tokens) == 5:
+            host = Entity.get(tokens[1])
+            host.set_ips(tokens[2], tokens[3], tokens[4])
+
+        else:
+            router = Entity.get(tokens[1])
+            for k in range(2, len(tokens), 2):
+                router.set_ip_at(tokens[k], tokens[k + 1])
+
 
     def destroy(self):
         self.file.close()
