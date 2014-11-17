@@ -1,47 +1,140 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import sys
 import heapq
 
 # Commands to be executed and packages to be transmited ##############
-class Event:
+class Package:
     def __init__(self, time, command):
         self.time = float(time)
         self.command = command
-        Simulator.add_event(self)
+        self.__prepare_with(command)
+        Simulator.add_package(self)
+
 
     def process(self):
-        # executes command
-        return self.command
+        if self.command == "finish":
+            print("finished")
+            return
+
+        # print (self.command),
+        # print (self.time)
+
+        if not isinstance(self.entity, Link):
+            self.last_entity = self.entity
+            if isinstance(self.entity, Host) and self.destination == self.entity.ip:
+                # print (self.entity.agent.process)
+                # self.entity.agent.process(self.content)
+                self.state += 1
+                self.origin, self.destination = self.destination, self.origin
+                self.entity = self.entity.link
+            else:
+                if isinstance(self.entity, Host) and self.origin == self.entity.ip:
+                    link = self.entity.link
+
+                elif isinstance(self.entity, Router):
+                    router = self.entity
+                    # print (self.destination)
+                    link = router.route_to_link(self.destination)
+                    port = link.get_port_from(router)
+                    router.queue_top[port] -= 1
+                    if router.queue_top[port] == 0:
+                        router.last_inserted = None
+                    else:
+                        router.last_inserted = router.last_inserted + router.delay
+                
+                if not link.is_occupied():
+                    self.time += link.delay + (len(self.content) / link.bps)
+                    self.entity = link
+                    link.add_package(self)
+                else:
+                    self.time += link.time_to_be_free()
+
+
+        elif isinstance(self.entity, Link):
+            link = self.entity
+            link.occupied = False
+            # print (link.extreme1)
+            # print (link.extreme2)
+            # print (self.last_entity)
+            if self.last_entity == link.extreme1:
+                extreme = link.extreme2
+                port = link.port2
+            else:
+                extreme = link.extreme1
+                port = link.port1
+            self.entity = extreme
+
+            if isinstance(extreme, Router):
+                router = extreme
+                if router.queue_top[port] < router.door_limit[port]:
+                    if not router.last_inserted:
+                        router.last_inserted = self.time
+
+                    self.time += (router.queue_top[port] * router.delay) + (router.last_inserted + router.delay - self.time)
+                    router.queue_top[port] += 1
+
+                else: return None # Queue limit reached.
+                
+            else:
+                self.time += 10
+                print (self.state)
+                print ("not an error")
+            
+
+        Simulator.add_package(self)
+
+
+    def __prepare_with(self, command):
+        tokens = command.split()
+        if not tokens[0] == "finish":
+            self.entity = Entity.get(tokens[0]).host
+            self.origin = self.entity.ip
+            if '.' in tokens[2]:
+                self.state = 3
+                self.destination = tokens[2]
+            else:
+                self.state = 1
+                self.destination = self.entity.dns_ip
+            self.content = self.entity.agent.build_with(self.origin, self.destination, tokens[1])
+        else:
+            print ("Finish done.") # o q eh pra fazer aqui? Nada?
+
 
 # PriorityQueue ######################################################
-class EventQueue:
+class PackageQueue:
     def __init__(self):
-        self.events = []
+        self.packages = []
 
-    def add(self, event):
-        heapq.heappush(self.events, (event.time, event))
+    def add(self, package):
+        heapq.heappush(self.packages, (package.time, package))
 
     def get_next(self):
-        _, event = heapq.heappop(self.events)
-        return event
+        _, package = heapq.heappop(self.packages)
+        return package
+
+    def empty(self):
+        return len(self.packages) == 0
 
 # Simulator contains all the program entities and all the
 # commands which will happen #########################################
 class Simulator:
     entities = {}
-    events = EventQueue()
+    packages = PackageQueue()
 
     @staticmethod
     def add_entity(identifier, entity):
         Simulator.entities[identifier] = entity
 
     @staticmethod
-    def add_event(new_event):
-        Simulator.events.add(new_event)
+    def add_package(new_package):
+        Simulator.packages.add(new_package)
 
     @staticmethod
     def start():
-        first_event = Simulator.events.get_next()
-        first_event.process()
+        while not Simulator.packages.empty():
+            Simulator.packages.get_next().process()
 
     @staticmethod
     def finish():
@@ -69,6 +162,7 @@ class Entity:
 class Agent(Entity):
     def attach_to(self, host_name):
         self.host = Entity.get(host_name)
+        self.host.set_agent(self)
 
 
 ######################################################################
@@ -78,6 +172,9 @@ class Host(Entity):
 
     def set_link(self, link):
         self.link = link
+
+    def set_agent(self, agent):
+        self.agent = agent
 
     def set_ips(self, my_ip, standard_router, dns_server):
         self.ip = my_ip
@@ -90,6 +187,8 @@ class Router(Entity):
         self.link_at_door = [None for each in range(int(interfaces))]
         self.door_ip = [None for each in range(int(interfaces))]
         self.door_limit = [None for each in range(int(interfaces))]
+        self.queue_top = [0 for each in range(int(interfaces))]
+        self.last_inserted = None
         self.routing_table = {}
         Entity.__init__(self, word)
 
@@ -112,18 +211,20 @@ class Router(Entity):
     def route_to_link(self, origin):
         key = origin[0: origin.rfind('.')]
         while '.' in self.routing_table[key]:
-            key = self.routing_table[key][0: origin.rfind('.')]
-        port = self.routing_table[key]
+            key = self.routing_table[key]
+            key = key[0: key.rfind('.')]
+        port = int(self.routing_table[key])
         return self.link_at_door[port]
 
 
 
 class Link:
     def __init__(self, entity_list1, entity_list2, Mbps, delay):
-        self.extreme1 = self.__warn_and_get_entity(entity_list1)
-        self.extreme2 = self.__warn_and_get_entity(entity_list2)
+        self.extreme1, self.port1 = self.__warn_and_get_entity(entity_list1)
+        self.extreme2, self.port2 = self.__warn_and_get_entity(entity_list2)
         self.bps = float(Mbps)/(1024 * 1024)
         self.delay = float(delay)/1000
+        self.occupied = False
         self.sniffers = []
 
     def add_sniffer(self, sniffer):
@@ -133,11 +234,36 @@ class Link:
         if len(entity_list) > 1: # [router, port]
             router = Entity.get(entity_list[0])
             router.set_link(entity_list[1], self)
-            return router
+            return (router, int(entity_list[1]))
         else: # [host]
             host = Entity.get(entity_list[0])
             host.set_link(self)
-            return host
+            return (host, None)
+
+    def is_occupied(self):
+        return self.occupied == True
+
+    def add_package(self, package): #TODO fazer isso aqui certo
+        self.occupied = True
+        self.no_longer_occupied_time = package.time
+
+    def time_to_be_free(self):
+        return self.no_longer_occupied_time
+
+    def get_port_from(self, router):
+        if self.extreme1 == router:
+            return int(self.port1)
+        else:
+            return int(self.port2)
+
+
+
+class UDP_Datagram:
+    def __init__(self, sender_ip, receiver_ip, content):
+        self.sender_ip = sender_ip
+        self.receiver_ip = receiver_ip
+        self.size = len(content)
+        self.content = content
 
 
 class DNSServer(Agent):
@@ -161,6 +287,8 @@ class HTTPClient(Agent):
     def __init__(self, word):
         Entity.__init__(self, word)
 
+    def build_with(package, origin_ip, destination_ip, httpcommand):
+        return "message" #TODO construir mensagem aqui
 
 class FTPServer(Agent):
     def __init__(self, word):
@@ -170,6 +298,9 @@ class FTPServer(Agent):
 class FTPClient(Agent):
     def __init__(self, word):
         Entity.__init__(self, word)
+
+    def build_with(package, origin_ip, destination_ip, ftpcommand):
+        return "message" #TODO construir mensagem aqui
 
 
 class Sniffer(Entity):
@@ -258,7 +389,7 @@ class Reader:
 
         elif '$simulator at ' in line:
             tokens = line.split(' ', 3)
-            Event(tokens[2], tokens[3].replace('"', ''))
+            Package(tokens[2], tokens[3].replace('"', ''))
 
         elif len(tokens) == 5:
             host = Entity.get(tokens[1])
