@@ -16,12 +16,11 @@ sudo apt-get update
 sudo apt-get install python2.7
 
     Optamos por esta linguagem de programação pois ela é atual,
-bastante utilizada e para que, desta forma, pudéssemos conhecê-la melhor.
+bastante utilizada e para que, desta forma, pudéssemos continuar a
+praticá-la, visto que também foi a linguagem adotada para o EP2.
 
-Também foi decisivo na escolha da linguagem o oferecimento de suporte à
-programação orientada a objetos em python. Nos utilizamos extensamente 
-da criação de classes que representavam as diversas entidades existentes
-no escopo do problema.
+    Também foi decisivo na escolha da linguagem o oferecimento de
+suporte à programação orientada a objetos em python. Nós o utilizamos extensamente durante a criação de classes que representavam as diversas entidades existentes no escopo do problema.
 
 #########################################################################
 #                       Execução do Programa                            #
@@ -32,10 +31,10 @@ arquivo Makefile que compilasse o código fonte.
 
     A execução do programa se dá pela seguinte linha de comando:
 
-    ./simulator file.txt
+    python simulator <arquivo>
 
-    onde file.txt é o arquivo de configurações e inicializações do programa
-como foi requerido no enunciado do exercício programa.
+    onde arquivo é o nome do arquivo de configurações e inicializações do
+programa, que segue a estrutura requerida no enunciado do exercício programa.
 
 #########################################################################
 #                        Arquivos dos Sniffers                          #
@@ -44,9 +43,8 @@ como foi requerido no enunciado do exercício programa.
     O log dos sniffers inseridos na simulação estará presente no mesmo
 diretório que o arquivos de código fonte do simulador.
 
-    Caso o usuário digitou dados com caminhos relativos, o caminho tem
-como base de caminho o diretório contendo os arquivos relativos ao código
-fonte do simulador.
+    Caso o usuário tenha digitado dados com caminhos relativos, o
+caminho terá como base o caminho do diretório contendo os arquivos relativos ao código fonte do simulador.
 
 
 #########################################################################
@@ -63,7 +61,7 @@ veja o enunciado do exercício.
 #                           Saída do Programa                           #
 #########################################################################
 
-    
+
 
 
 #######################################################################
