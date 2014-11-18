@@ -40,13 +40,11 @@ class Package:
         if not isinstance(self.entity, Link):
             self.last_entity = self.entity
             if isinstance(self.entity, Host) and self.tcp_header.receiver == self.entity.ip:
-                # print (self.entity.agent.process)
                 self.entity.process(self)
-                self.state += 1                                               #TODO o processa faz isso tbm.
-                self.tcp_header.sender, self.tcp_header.receiver = self.tcp_header.receiver, self.tcp_header.sender #TODO o processa faz isso neh.
                 self.entity = self.entity.link
             else:
                 if isinstance(self.entity, Host) and self.tcp_header.sender == self.entity.ip:
+                    self.entity.process(self)
                     link = self.entity.link
                     print ("case")
 
@@ -205,7 +203,8 @@ class Host(Entity):
 
         # TODO fazer aqui a state machine de um host
         # if state == 1:
-
+        package.state += 1
+        package.tcp_header.sender, package.tcp_header.receiver = package.tcp_header.receiver, package.tcp_header.sender
         
 
 
