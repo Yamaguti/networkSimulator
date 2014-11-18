@@ -162,6 +162,17 @@ class Agent(Entity):
         self.host = Entity.get(host_name)
         self.host.set_agent(self)
 
+    def load(self):
+        f = open(self.__class__.file_name, 'rb')
+        content = f.read()
+        f.close()
+        return content
+
+    def copy(self, content):
+        f = open(self.__class__.file_name), 'wb')
+        f.write(content)
+        f.close()
+
 
 ######################################################################
 class Host(Entity):
@@ -306,8 +317,13 @@ class DNSServer(Agent):
 
 
 class HTTPServer(Agent):
+    file_name = 'copy.txt'
+
     def __init__(self, word):
         Entity.__init__(self, word)
+
+    def process(self, package):
+        package.file = self.load()
 
 
 class HTTPClient(Agent):
@@ -318,16 +334,35 @@ class HTTPClient(Agent):
         return "message" #TODO construir mensagem aqui
 
 class FTPServer(Agent):
+    file_name = 'copy.txt'
+
     def __init__(self, word):
         Entity.__init__(self, word)
+
+    def process(self, package):
+        if ' GET ' in package.command:
+            package.file = self.load()
+        elif ' PUT ' in package.command:
+            self.copy(package.file)
 
 
 class FTPClient(Agent):
+    file_name = 'source.txt'
+
     def __init__(self, word):
         Entity.__init__(self, word)
 
+    # initial message
     def build_with(package, origin_ip, destination_ip, ftpcommand):
-        return "message" #TODO construir mensagem aqui
+        #TODO construir mensagem aqui
+        if ' PUT ' in package.command:
+            package.file = self.load()
+        return "message"
+
+    # response
+    def process(self, package):
+        if ' GET ' in package.command:
+            self.copy(package.file)
 
 
 class Sniffer(Entity):
