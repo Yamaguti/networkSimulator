@@ -22,10 +22,10 @@ class TCPHeader:
 class Package:
     def __init__(self, time, command):
         self.is_alive = True
+        self.tcp_header = TCPHeader()
         self.time = float(time)
         self.command = command
         self.__prepare_with(command)
-        self.tcp_header = TCPHeader()
         Simulator.add_package(self)
 
 
@@ -39,20 +39,21 @@ class Package:
 
         if not isinstance(self.entity, Link):
             self.last_entity = self.entity
-            if isinstance(self.entity, Host) and self.destination == self.entity.ip:
+            if isinstance(self.entity, Host) and self.tcp_header.receiver == self.entity.ip:
                 # print (self.entity.agent.process)
                 self.entity.process(self)
-                self.state += 1
-                self.origin, self.destination = self.destination, self.origin
+                self.state += 1                                               #TODO o processa faz isso tbm.
+                self.tcp_header.sender, self.tcp_header.receiver = self.tcp_header.receiver, self.tcp_header.sender #TODO o processa faz isso neh.
                 self.entity = self.entity.link
             else:
-                if isinstance(self.entity, Host) and self.origin == self.entity.ip:
+                if isinstance(self.entity, Host) and self.tcp_header.sender == self.entity.ip:
                     link = self.entity.link
+                    print ("case")
 
                 elif isinstance(self.entity, Router):
                     router = self.entity
                     # print (self.destination)
-                    link = router.route_to_link(self.destination)
+                    link = router.route_to_link(self.tcp_header.receiver)
                     port = link.get_port_from(router)
                     router.queue_top[port] -= 1
                     if router.queue_top[port] == 0:
@@ -106,16 +107,14 @@ class Package:
         tokens = command.split()
         if not tokens[0] == "finish":
             self.entity = Entity.get(tokens[0]).host
-            self.origin = self.entity.ip
+            self.tcp_header.sender = self.entity.ip
             if '.' in tokens[2]:
                 self.state = 3
-                self.destination = tokens[2]
+                self.tcp_header.receiver = tokens[2]
             else:
                 self.state = 1
-                self.destination = self.entity.dns_ip
-            self.content = self.entity.agent.build_with(self.origin, self.destination, tokens[1])
-            self.tcp_header.sender = self.origin
-            self.tcp_header.receiver = self.receiver
+                self.tcp_header.receiver = self.entity.dns_ip
+            self.content = self.entity.agent.build_with(self.tcp_header.sender, self.tcp_header.receiver, tokens[1])
 
         else:
             print ("Finish done.") # o q eh pra fazer aqui? Nada?
@@ -205,6 +204,8 @@ class Host(Entity):
         print ("state: " + str(state))
 
         # TODO fazer aqui a state machine de um host
+        # if state == 1:
+
         
 
 
