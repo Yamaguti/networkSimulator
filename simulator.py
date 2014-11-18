@@ -25,6 +25,7 @@ class Package:
         self.tcp_header = TCPHeader()
         self.time = float(time)
         self.command = command
+        self.on_link_delay = False
         self.__prepare_with(command)
         Simulator.add_package(self)
 
@@ -39,40 +40,37 @@ class Package:
 
         if not isinstance(self.entity, Link):
             self.last_entity = self.entity
-            if isinstance(self.entity, Host) and self.tcp_header.receiver == self.entity.ip:
-                self.entity.process(self)
-                self.entity = self.entity.link
-            else:
-                if isinstance(self.entity, Host) and self.tcp_header.sender == self.entity.ip:
-                    self.entity.process(self)
-                    link = self.entity.link
-                    print ("case")
 
-                elif isinstance(self.entity, Router):
-                    router = self.entity
-                    # print (self.destination)
-                    link = router.route_to_link(self.tcp_header.receiver)
-                    port = link.get_port_from(router)
+            if isinstance(self.entity, Host):
+                if not self.on_link_delay:
+                    self.entity.process(self)
+                
+                link = self.entity.link # put me on link
+
+            else: # the only case left is that entity is a router
+                router = self.entity
+                link = router.route_to_link(self.tcp_header.receiver)
+                port = link.get_port_from(router)
+                if not self.on_link_delay:
                     router.queue_top[port] -= 1
                     if router.queue_top[port] == 0:
                         router.last_inserted = None
                     else:
                         router.last_inserted = router.last_inserted + router.delay
-                
-                if not link.is_occupied():
-                    self.time += link.delay + (len(self.content) / link.bps)
-                    self.entity = link
-                    link.add_package(self)
-                else:
-                    self.time += link.time_to_be_free()
+            
+            if not link.is_occupied():
+                self.time += link.delay + (len(self.content) / link.bps)
+                self.entity = link
+                self.on_link_delay = False
+                link.add_package(self)
+            else:
+                self.on_link_delay = True
+                self.time += link.time_to_be_free()
 
 
         elif isinstance(self.entity, Link):
             link = self.entity
             link.occupied = False
-            # print (link.extreme1)
-            # print (link.extreme2)
-            # print (self.last_entity)
             if self.last_entity == link.extreme1:
                 extreme = link.extreme2
                 port = link.port2
