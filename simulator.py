@@ -4,12 +4,28 @@
 import sys
 import heapq
 
+# TCP hearder implementation
+class TCPHeader:
+    def __init__(self):
+        self.ACK = 0
+        self.SYN = 0
+        self.FIN = 0
+        self.size = 0
+        self.protocol = "TCP"
+        self.seq_num = 1
+        self.ack_number = 0
+        self.sender = ""
+        self.receiver = ""
+
+
 # Commands to be executed and packages to be transmited ##############
 class Package:
     def __init__(self, time, command):
+        self.is_alive = True
         self.time = float(time)
         self.command = command
         self.__prepare_with(command)
+        self.tcp_header = TCPHeader()
         Simulator.add_package(self)
 
 
@@ -25,7 +41,7 @@ class Package:
             self.last_entity = self.entity
             if isinstance(self.entity, Host) and self.destination == self.entity.ip:
                 # print (self.entity.agent.process)
-                # self.entity.agent.process(self.content)
+                self.entity.process(self)
                 self.state += 1
                 self.origin, self.destination = self.destination, self.origin
                 self.entity = self.entity.link
@@ -78,12 +94,12 @@ class Package:
                 else: return None # Queue limit reached.
                 
             else:
-                self.time += 10
-                print (self.state)
+                self.time += 10 # TODO consertar isso
                 print ("not an error")
             
 
-        Simulator.add_package(self)
+        if self.is_alive:
+            Simulator.add_package(self)
 
 
     def __prepare_with(self, command):
@@ -98,6 +114,9 @@ class Package:
                 self.state = 1
                 self.destination = self.entity.dns_ip
             self.content = self.entity.agent.build_with(self.origin, self.destination, tokens[1])
+            self.tcp_header.sender = self.origin
+            self.tcp_header.receiver = self.receiver
+
         else:
             print ("Finish done.") # o q eh pra fazer aqui? Nada?
 
@@ -180,6 +199,13 @@ class Host(Entity):
         self.ip = my_ip
         self.router_ip = standard_router
         self.dns_ip = dns_server
+
+    def process(self, package):
+        state = package.state
+        print ("state: " + str(state))
+
+        # TODO fazer aqui a state machine de um host
+        
 
 
 class Router(Entity):
