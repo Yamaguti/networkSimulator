@@ -31,19 +31,16 @@ class Package:
 
 
     def process(self):
-        if self.command == "finish":
+        if self.command == "finish": # TODO o q faz aqui?
             print("finished")
             return
-
-        # print (self.command),
-        # print (self.time)
 
         if not isinstance(self.entity, Link):
             self.last_entity = self.entity
 
             if isinstance(self.entity, Host):
                 if not self.on_link_delay:
-                    self.entity.process(self)
+                    self.entity.process(self) # Does host processing to message
                 
                 link = self.entity.link # put me on link
 
@@ -51,7 +48,7 @@ class Package:
                 router = self.entity
                 link = router.route_to_link(self.tcp_header.receiver)
                 if not self.on_link_delay:
-                    router.process(self)
+                    router.process(self) # Leaves queue
             
             if not link.is_occupied():
                 self.time += link.delay + (len(self.content) / link.bps)
@@ -62,8 +59,7 @@ class Package:
                 self.on_link_delay = True
                 self.time += link.time_to_be_free()
 
-
-        elif isinstance(self.entity, Link):
+        else: # here, entity is a Link
             link = self.entity
             link.occupied = False
             if self.last_entity == link.extreme1:
@@ -75,19 +71,11 @@ class Package:
             self.entity = extreme
 
             if isinstance(extreme, Router):
-                router = extreme
-                if router.queue_top[port] < router.door_limit[port]:
-                    if not router.last_inserted:
-                        router.last_inserted = self.time
-
-                    self.time += (router.queue_top[port] * router.delay) + (router.last_inserted + router.delay - self.time)
-                    router.queue_top[port] += 1
-
-                else: return None # Queue limit reached.
+                extreme.pushPackageIntoQueue(self, port)
                 
             else:
                 self.time += 10 # TODO consertar isso
-                print ("not an error")
+                print ("hit a host on the network")
             
 
         if self.is_alive:
@@ -243,6 +231,17 @@ class Router(Entity):
             self.last_inserted = None
         else:
             self.last_inserted = self.last_inserted + self.delay
+
+    def pushPackageIntoQueue(self, package, port):
+        if self.queue_top[port] < self.door_limit[port]:
+            if not self.last_inserted:
+                self.last_inserted = package.time
+
+            package.time += (self.queue_top[port] * self.delay) + (self.last_inserted + self.delay - package.time)
+            self.queue_top[port] += 1
+
+        else:
+            package.is_alive = False # Queue is full, so package is lost.
 
 
 class Link:
