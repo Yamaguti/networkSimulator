@@ -20,8 +20,11 @@ class TCPHeader:
 
 # Commands to be executed and packages to be transmitted #############
 class Package:
+    id_generator = 1
+
     def __init__(self, time, command):
         self.is_alive = True
+        self.identifier = Package.get_new_id()
         self.tcp_header = TCPHeader()
         self.time = float(time)
         self.command = command
@@ -96,6 +99,11 @@ class Package:
                 self.tcp_header.receiver = self.entity.dns_ip
             self.content = self.entity.agent.build_with(self.tcp_header.sender, self.tcp_header.receiver, tokens[1])
 
+    @staticmethod
+    def get_new_id():
+        identifier = Package.id_generator
+        Package.id_generator += 1
+        return identifier
 
 
 # PriorityQueue ######################################################
@@ -197,6 +205,7 @@ class Host(Entity):
         # TODO fazer aqui a state machine de um host
         # if state == 1:
         package.state += 1
+        package.identifier = Package.get_new_id()
         package.tcp_header.sender, package.tcp_header.receiver = package.tcp_header.receiver, package.tcp_header.sender
 
 
