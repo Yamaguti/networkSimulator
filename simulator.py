@@ -50,13 +50,8 @@ class Package:
             else: # the only case left is that entity is a router
                 router = self.entity
                 link = router.route_to_link(self.tcp_header.receiver)
-                port = link.get_port_from(router)
                 if not self.on_link_delay:
-                    router.queue_top[port] -= 1
-                    if router.queue_top[port] == 0:
-                        router.last_inserted = None
-                    else:
-                        router.last_inserted = router.last_inserted + router.delay
+                    router.process(self)
             
             if not link.is_occupied():
                 self.time += link.delay + (len(self.content) / link.bps)
@@ -240,6 +235,14 @@ class Router(Entity):
         port = int(self.routing_table[key])
         return self.link_at_door[port]
 
+    def process(self, package):
+        link = self.route_to_link(package.tcp_header.receiver)
+        port = link.get_port_from(self)
+        self.queue_top[port] -= 1
+        if self.queue_top[port] == 0:
+            self.last_inserted = None
+        else:
+            self.last_inserted = self.last_inserted + self.delay
 
 
 class Link:
