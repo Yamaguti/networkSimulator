@@ -18,7 +18,7 @@ class TCPHeader:
         self.receiver = ""
 
 
-# Commands to be executed and packages to be transmited ##############
+# Commands to be executed and packages to be transmitted #############
 class Package:
     def __init__(self, time, command):
         self.is_alive = True
@@ -31,7 +31,8 @@ class Package:
 
 
     def process(self):
-        if self.command == "finish": # TODO o q faz aqui?
+        if self.command == "finish":
+            Simulator.finish()
             print("finished")
             return
 
@@ -41,7 +42,7 @@ class Package:
             if isinstance(self.entity, Host):
                 if not self.on_link_delay:
                     self.entity.process(self) # Does host processing to message
-                
+
                 link = self.entity.link # put me on link
 
             else: # the only case left is that entity is a router
@@ -49,7 +50,7 @@ class Package:
                 link = router.route_to_link(self.tcp_header.receiver)
                 if not self.on_link_delay:
                     router.process(self) # Leaves queue
-            
+
             if not link.is_occupied():
                 self.time += link.delay + (len(self.content) / link.bps)
                 self.entity = link
@@ -72,11 +73,11 @@ class Package:
 
             if isinstance(extreme, Router):
                 extreme.pushPackageIntoQueue(self, port)
-                
+
             else:
                 self.time += 10 # TODO consertar isso
                 print ("hit a host on the network")
-            
+
 
         if self.is_alive:
             Simulator.add_package(self)
@@ -95,8 +96,6 @@ class Package:
                 self.tcp_header.receiver = self.entity.dns_ip
             self.content = self.entity.agent.build_with(self.tcp_header.sender, self.tcp_header.receiver, tokens[1])
 
-        else:
-            print ("Finish done.") # o q eh pra fazer aqui? Nada?
 
 
 # PriorityQueue ######################################################
@@ -135,6 +134,8 @@ class Simulator:
 
     @staticmethod
     def finish():
+        while not Simulator.packages.empty():
+            Simulator.packages.get_next()
         for sniffer in Entity.get_all(Sniffer):
             sniffer.finish()
 
@@ -186,7 +187,7 @@ class Host(Entity):
         # if state == 1:
         package.state += 1
         package.tcp_header.sender, package.tcp_header.receiver = package.tcp_header.receiver, package.tcp_header.sender
-        
+
 
 
 class Router(Entity):
@@ -441,4 +442,3 @@ r = Reader(sys.argv[1])
 r.read_entry()
 r.destroy()
 Simulator.start()
-Simulator.finish()
