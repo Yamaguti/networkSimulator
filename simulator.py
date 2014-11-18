@@ -4,6 +4,43 @@
 import sys
 import heapq
 
+class IPHeader:
+    TTL = 255
+
+    def __init__(self, package, transport_header):
+        self.sender = ""
+        self.receiver = ""
+        self.size = 0
+        self.ttl = IPHeader.TTL
+        self.protocol = transport_header.__class__.__name__
+        self.package = package
+
+    def __repr__(self):
+        data = '> Camada de Rede (IP)\n'
+        data += 'Endereço IP de origem - ' + self.sender + '\n'
+        data += 'Endereço IP de destino - ' + self.receiver + '\n'
+
+        if self.protocol == TCPHeader:
+            protocol_number = '6'
+        elif protocol == UDPHeader:
+            self.protocol = '17'
+
+        data += 'Protocolo - ' + protocol_number + '\n'
+        # FIXME Calcular tamanho do cabeçalho IP e tudo das camadas acima
+        data += 'Tamanho - ' + self.size + '\n'
+        data += 'TTL - ' + self.ttl + '\n'
+        return data
+
+
+    def update_ttl(self):
+        self.ttl -= 1
+        if self.ttl == 0:
+            self.package.is_alive = False
+
+    def exchange_sender_with_receiver(self):
+        self.sender, self.receiver = self.receiver, self.sender
+
+
 # TCP hearder implementation
 class TCPHeader:
     def __init__(self):
@@ -12,10 +49,47 @@ class TCPHeader:
         self.FIN = 0
         self.size = 0
         self.protocol = "TCP"
-        self.seq_num = 1
+        self.sequence_number = 1
         self.ack_number = 0
-        self.sender = ""
-        self.receiver = ""
+
+    def __repr__(self):
+        data = '> Camada de Transporte (TCP)\n'
+        data += 'Porta fonte - ' + self.sender_port + '\n'
+        data += 'Porta destino - ' + self.receiver_port + '\n'
+        data += 'Número de sequência - ' + self.sequence_number + '\n'
+        if self.ACK:
+            data += 'Número de reconhecimento - ' + self.ack_number + '\n'
+
+        data += 'Bit ACK - ' + self.ACK + '\n'
+        data += 'Bit FIN - ' + self.FIN + '\n'
+        data += 'Bit SYN - ' + self.SYN + '\n'
+        return data
+
+
+    def set_ports(self, source, destination):
+        self.sender_port = source
+        self.receiver_port = destination
+
+
+
+# UDP hearder implementation
+class UDPHeader:
+    def __init__(self):
+        self.protocol = "UDP"
+        self.size = 0
+
+    def __repr__(self):
+        data = '> Camada de Transporte (UDP)\n'
+        data += 'Porta fonte - ' + self.sender_port + '\n'
+        data += 'Porta destino - ' + self.receiver_port + '\n'
+        # FIXME Calcular tamanho do cabeçalho IP e tudo das camadas acima
+        data += 'Tamanho - ' + self.size + '\n'
+
+        return data
+
+    def set_ports(self, source, destination):
+        self.sender_port = source
+        self.receiver_port = destination
 
 
 # Commands to be executed and packages to be transmitted #############
@@ -25,12 +99,21 @@ class Package:
     def __init__(self, time, command):
         self.is_alive = True
         self.identifier = Package.get_new_id()
-        self.tcp_header = TCPHeader()
+        self.transport_header = TCPHeader()
+        self.ip_header = IPHeader(self, self.transport_header)
         self.time = float(time)
         self.command = command
         self.on_link_delay = False
         self.__prepare_with(command)
         Simulator.add_package(self)
+
+    def __repr__(self):
+        data = 'Identificador do pacote - ' + self.identifier + '\n'
+        data += 'Instante de Tempo - ' + self.time + '\n'
+        data += repr(self.ip_header)
+        data += repr(self.transport_header)
+        data += 'Conteúdo do pacote - ' + self.content
+        return data
 
 
     def process(self):
@@ -50,7 +133,7 @@ class Package:
 
             else: # the only case left is that entity is a router
                 router = self.entity
-                link = router.route_to_link(self.tcp_header.receiver)
+                link = router.route_to_link(self.ip_header.receiver)
                 if not self.on_link_delay:
                     router.process(self) # Leaves queue
 
@@ -90,20 +173,21 @@ class Package:
         tokens = command.split()
         if not tokens[0] == "finish":
             self.entity = Entity.get(tokens[0]).host
-            self.tcp_header.sender = self.entity.ip
+            self.ip_header.sender = self.entity.ip
             if '.' in tokens[2]:
                 self.state = 3
-                self.tcp_header.receiver = tokens[2]
+                self.ip_header.receiver = tokens[2]
             else:
                 self.state = 1
-                self.tcp_header.receiver = self.entity.dns_ip
-            self.content = self.entity.agent.build_with(self.tcp_header.sender, self.tcp_header.receiver, tokens[1])
+                self.ip_header.receiver = self.entity.dns_ip
+            self.content = self.entity.agent.build_with(self.ip_header.sender, self.ip_header.receiver, tokens[1])
 
     @staticmethod
     def get_new_id():
         identifier = Package.id_generator
         Package.id_generator += 1
         return identifier
+
 
 
 # PriorityQueue ######################################################
@@ -206,8 +290,7 @@ class Host(Entity):
         # if state == 1:
         package.state += 1
         package.identifier = Package.get_new_id()
-        package.tcp_header.sender, package.tcp_header.receiver = package.tcp_header.receiver, package.tcp_header.sender
-
+        package.ip_header.exchange_sender_with_receiver()
 
 
 class Router(Entity):
@@ -245,7 +328,7 @@ class Router(Entity):
         return self.link_at_door[port]
 
     def process(self, package):
-        link = self.route_to_link(package.tcp_header.receiver)
+        link = self.route_to_link(package.ip_header.receiver)
         port = link.get_port_from(self)
         self.queue_top[port] -= 1
         if self.queue_top[port] == 0:
@@ -288,10 +371,12 @@ class Link:
             return (host, None)
 
     def is_occupied(self):
-        return self.occupied == True
+        return self.occupied
 
     def add_package(self, package): #TODO fazer isso aqui certo
         self.occupied = True
+        self.package = package
+        self.be_sniffed()
         self.no_longer_occupied_time = package.time
 
     def time_to_be_free(self):
@@ -302,6 +387,10 @@ class Link:
             return int(self.port1)
         else:
             return int(self.port2)
+
+    def be_sniffed(self):
+        for sniffer in self.sniffers:
+            sniffer.write(self.package)
 
 
 
@@ -386,6 +475,12 @@ class Sniffer(Entity):
             link = entity.link
         link.add_sniffer(self)
         self.file = open(file_name, 'w')
+
+    def write(self, package):
+        self.file.write('Sniffer - ' + self.identifier + '\n')
+        print 'Sniffer - ' + self.identifier + '\n'
+        self.file.write(repr(package) + '\n')
+        print package
 
     def finish(self):
         self.file.close()
