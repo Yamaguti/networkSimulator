@@ -20,15 +20,16 @@ class IPHeader:
         data += 'Endereço IP de origem - ' + self.sender + '\n'
         data += 'Endereço IP de destino - ' + self.receiver + '\n'
 
+        protocol_number = '0'
         if self.protocol == TCPHeader:
             protocol_number = '6'
-        elif protocol == UDPHeader:
-            self.protocol = '17'
+        elif self.protocol == UDPHeader:
+            protocol_number = '17'
 
         data += 'Protocolo - ' + protocol_number + '\n'
         # FIXME Calcular tamanho do cabeçalho IP e tudo das camadas acima
-        data += 'Tamanho - ' + self.size + '\n'
-        data += 'TTL - ' + self.ttl + '\n'
+        data += 'Tamanho - ' + str(self.size) + '\n'
+        data += 'TTL - ' + str(self.ttl) + '\n'
         return data
 
 
@@ -51,18 +52,20 @@ class TCPHeader:
         self.protocol = "TCP"
         self.sequence_number = 1
         self.ack_number = 0
+        self.sender_port = 0
+        self.receiver_port = 0
 
     def __repr__(self):
         data = '> Camada de Transporte (TCP)\n'
-        data += 'Porta fonte - ' + self.sender_port + '\n'
-        data += 'Porta destino - ' + self.receiver_port + '\n'
-        data += 'Número de sequência - ' + self.sequence_number + '\n'
+        data += 'Porta fonte - ' + str(self.sender_port) + '\n'
+        data += 'Porta destino - ' + str(self.receiver_port) + '\n'
+        data += 'Número de sequência - ' + str(self.sequence_number) + '\n'
         if self.ACK:
             data += 'Número de reconhecimento - ' + self.ack_number + '\n'
 
-        data += 'Bit ACK - ' + self.ACK + '\n'
-        data += 'Bit FIN - ' + self.FIN + '\n'
-        data += 'Bit SYN - ' + self.SYN + '\n'
+        data += 'Bit ACK - ' + str(self.ACK) + '\n'
+        data += 'Bit FIN - ' + str(self.FIN) + '\n'
+        data += 'Bit SYN - ' + str(self.SYN) + '\n'
         return data
 
 
@@ -108,8 +111,8 @@ class Package:
         Simulator.add_package(self)
 
     def __repr__(self):
-        data = 'Identificador do pacote - ' + self.identifier + '\n'
-        data += 'Instante de Tempo - ' + self.time + '\n'
+        data = 'Identificador do pacote - ' + str(self.identifier) + '\n'
+        data += 'Instante de Tempo - ' + str(self.time) + '\n'
         data += repr(self.ip_header)
         data += repr(self.transport_header)
         data += 'Conteúdo do pacote - ' + self.content
@@ -261,7 +264,7 @@ class Agent(Entity):
         return content
 
     def copy(self, content):
-        f = open(self.__class__.file_name), 'wb')
+        f = open(self.__class__.file_name, 'wb')
         f.write(content)
         f.close()
 
