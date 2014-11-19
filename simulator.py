@@ -48,7 +48,6 @@ class TCPHeader:
         self.ACK = 0
         self.SYN = 0
         self.FIN = 0
-        self.size = 0
         self.protocol = "TCP"
         self.sequence_number = 1
         self.ack_number = 0
@@ -61,7 +60,7 @@ class TCPHeader:
         data += 'Porta destino - ' + str(self.receiver_port) + '\n'
         data += 'Número de sequência - ' + str(self.sequence_number) + '\n'
         if self.ACK:
-            data += 'Número de reconhecimento - ' + self.ack_number + '\n'
+            data += 'Número de reconhecimento - ' + str(self.ack_number) + '\n'
 
         data += 'Bit ACK - ' + str(self.ACK) + '\n'
         data += 'Bit FIN - ' + str(self.FIN) + '\n'
@@ -107,6 +106,7 @@ class Package:
         self.time = float(time)
         self.command = command
         self.on_link_delay = False
+        self.content = ""
         self.__prepare_with(command)
         Simulator.add_package(self)
 
@@ -177,13 +177,13 @@ class Package:
         if not tokens[0] == "finish":
             self.entity = Entity.get(tokens[0]).host
             self.ip_header.sender = self.entity.ip
-            if '.' in tokens[2]:
+            if '.' in tokens[2]: # check if dns query needed
                 self.state = 3
                 self.ip_header.receiver = tokens[2]
             else:
                 self.state = 1
                 self.ip_header.receiver = self.entity.dns_ip
-            self.content = self.entity.agent.build_with(self.ip_header.sender, self.ip_header.receiver, tokens[1])
+                self.entity.agent.build_package(self, self.ip_header.sender, self.ip_header.receiver, tokens[1])
 
     @staticmethod
     def get_new_id():
@@ -273,6 +273,7 @@ class Agent(Entity):
 class Host(Entity):
     def __init__(self, word):
         Entity.__init__(self, word)
+        self.transport_layer = TransportLayer()
 
     def set_link(self, link):
         self.link = link
@@ -289,11 +290,23 @@ class Host(Entity):
         state = package.state
         print ("state: " + str(state))
 
-        # TODO fazer aqui a state machine de um host
-        # if state == 1:
         package.state += 1
         package.identifier = Package.get_new_id()
         package.ip_header.exchange_sender_with_receiver()
+        self.prepareCommand(package, package.ip_header.sender, package.ip_header.receiver)
+
+    def prepareCommand(self, package, sender_ip, receiver_ip):
+        state = package.state
+        if state == 1:
+            package.content = package.command.split()[2]
+        elif state == 2:
+            if isinstance(self.agent, DNSServer): #TODO FIXME
+                self.agent.process(package)
+        elif state > 2 and state < 6:
+            package.ip_header.receiver_ip = package.content
+            self.transport_layer.do_three_way_handshake(package, sender_ip, package.content)
+
+
 
 
 class Router(Entity):
@@ -396,13 +409,41 @@ class Link:
             sniffer.write(self.package)
 
 
+# class UDP_Datagram:
+#     def __init__(self, sender_ip, receiver_ip, content):
+#         self.sender_ip = sender_ip
+#         self.receiver_ip = receiver_ip
+#         self.size = len(content)
+#         self.content = content
 
-class UDP_Datagram:
-    def __init__(self, sender_ip, receiver_ip, content):
-        self.sender_ip = sender_ip
-        self.receiver_ip = receiver_ip
-        self.size = len(content)
-        self.content = content
+class TransportLayer:
+    def __init__ (self):
+        self.sequence_number = 1
+
+    def do_three_way_handshake(self, package, sender_ip, receiver_ip):
+        tcp_header = package.transport_header
+        state = package.state
+        if state == 3:
+            tcp_header.ACK = 0
+            tcp_header.SYN = 1
+            package.ip_header.size = 1
+            tcp_header.sequence_number = self.sequence_number
+            self.sequence_number + 1
+
+        elif state == 4:
+            tcp_header.ACK = 1
+            tcp_header.ack_number = tcp_header.sequence_number + package.ip_header.size + 1
+
+            tcp_header.SYN = 1
+            tcp_header.sequence_number = self.sequence_number
+            self.sequence_number + 1
+
+            package.ip_header.size = 1 # TODO FIXME
+
+        elif state == 5:
+            tcp_header.SIN = 0
+            tcp_header.ACK = 1
+            tcp_header.ack_number = tcp_header.sequence_number + package.ip_header.size + 1
 
 
 class DNSServer(Agent):
@@ -415,6 +456,9 @@ class DNSServer(Agent):
 
     def translate(self, identifier):
         return self.table[identifier]
+
+    def process(self, package):
+        package.content = self.translate(package.content)
 
 
 class HTTPServer(Agent):
@@ -431,8 +475,10 @@ class HTTPClient(Agent):
     def __init__(self, word):
         Entity.__init__(self, word)
 
-    def build_with(package, origin_ip, destination_ip, httpcommand):
-        return "message" #TODO construir mensagem aqui
+    def build_package(self, package, sender_ip, receiver_ip, httpcommand):
+        self.host.prepareCommand(package, sender_ip, receiver_ip)
+        return "message"
+        
 
 class FTPServer(Agent):
     file_name = 'copy.txt'
@@ -454,7 +500,8 @@ class FTPClient(Agent):
         Entity.__init__(self, word)
 
     # initial message
-    def build_with(package, origin_ip, destination_ip, ftpcommand):
+    def build_package(package, sender_ip, receiver_ip, ftpcommand):
+        self.host.prepareCommand(package, sender_ip, receiver_ip)
         #TODO construir mensagem aqui
         if ' PUT ' in package.command:
             package.file = self.load()
