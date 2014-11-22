@@ -552,8 +552,7 @@ class TransportLayer:
 
             self.network_layer.deliver_to(ip, response, "TCP")
 
-            message = self.messages_to_be_send[ip]
-            self.messages_to_be_send[ip]        = None
+            message = self.messages_to_be_send.pop(ip, "")
             application_segment                 = TCPSegment(message)
             self.sequence_numbers[ip]          += len(message)
             application_segment.sequence_number = self.sequence_numbers[ip]
