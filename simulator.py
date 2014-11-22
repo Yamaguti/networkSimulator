@@ -354,6 +354,7 @@ class Router(Entity):
             time = router.get_time() + (router.queue_top[interface] * router.delay) #TODO FIXME #+ (router.last_inserted + router.delay - packet.time)
             
             def process_packet(event):
+                router.queue_top[interface] -= 1
                 interface = router.get_interface_from_table(packet.receiver)
                 router.network_layer.repass_packet(packet, interface)
                 return
