@@ -749,10 +749,11 @@ class DNSServer(Agent):
 
 
 class HTTPServer(Agent):
-    file_name = 'copy.txt'
+    file_name = 'http_index.txt'
 
     def __init__(self, word):
         Entity.__init__(self, word)
+        self.file = open(HTTPServer.file_name, 'r')
 
     # TODO remove
     def process(self, packet):
@@ -760,7 +761,7 @@ class HTTPServer(Agent):
 
     def receive_message(self, message, sender):
         if message == "GET":
-            self.host.send_to(sender, "por o texto de verdade aqui. BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA ")
+            self.host.send_to(sender, self.file.read())
             
              # schedule connection close after 0.1 s.
             def close(event):
@@ -806,6 +807,7 @@ class FTPServer(Agent):
 
     def __init__(self, word):
         Entity.__init__(self, word)
+        self.file = open(FTPServer.file_name, 'r')
 
     #TODO remover
     def process(self, packet):
@@ -821,7 +823,7 @@ class FTPServer(Agent):
             return
 
         elif tokens[0] == "GET":
-            self.host.send_to(sender, "BLABLABLABLABLABLABLA")
+            self.host.send_to(sender, self.file.read())
             return
 
         elif tokens[0] == "PUT":
@@ -840,6 +842,7 @@ class FTPClient(Agent):
     def __init__(self, word):
         Entity.__init__(self, word)
         self.message_stack    = {}
+        self.file = open(FTPClient.file_name, 'r')
 
     def do(self, time, command):
         self.host.set_time(time)
@@ -849,7 +852,7 @@ class FTPClient(Agent):
 
         self.message_stack[ip] = ["QUIT"]
         if message == "PUT":
-            self.message_stack[ip].append("PUT PUT PUT PUT PUT PUT PUT CONTENT HERE")
+            self.message_stack[ip].append(self.file.read())
 
         self.message_stack[ip].append(message)
 
@@ -861,7 +864,7 @@ class FTPClient(Agent):
         #Doing FTP authentication.
         self.host.send_to(ip, "USER: FTP_USER1 PASS:1234")
 
-    def receive_message(self, message, sender):
+    def receive_message(self, message, sender): 
         if self.message_stack[sender]: #if I have another message in the stack for sender
             new_message = self.message_stack[sender].pop()
             self.host.send_to(sender, new_message)
