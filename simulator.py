@@ -268,7 +268,6 @@ class Host(Entity):
         host.network_layer   = NetworkLayer(host)
         host.link_layer      = LinkLayer(host)
 
-        host.waiting_for_response = {}
         host.set_layers()
 
     def get_ip(host):
@@ -290,26 +289,14 @@ class Host(Entity):
         host.network_layer.set_ips(my_ip, standard_router, dns_server)
 
     def send_to(host, ip, message):
-        if not '.' in ip: #DNS query required.
-            host.do_DNS_query_and_send(ip, message)
-            return
-
         if debug: print ("giving message: " + message + " to tranport")
         host.transport_layer.send_message(ip, message)
 
     def close_connection(host, sender):
         host.transport_layer.close_connection(sender)
 
-    def do_DNS_query_and_send(host, query, message):
-        datagram = UDPDatagram(query)
-        host.waiting_for_response[query] = message
-        host.transport_layer.send_datagram_to(host.network_layer.dns_server, datagram)
-        return
-
-    def proceed_afer_query(host, response, query):
-        print ("proceeding after query. Result: " + response + "\n\n")
-        message = host.waiting_for_response.pop(query, None)
-        host.send_to(response, message)
+    def proceed_after_query(host, response, query):
+        host.agent.proceed_after_query(response, query)
         return
 
     def process(host, message, sender):
@@ -477,7 +464,7 @@ class TransportLayer:
         
         elif hasattr(segment, 'is_dns_response'):
             tokens = segment.extract_message().split()
-            self.host.proceed_afer_query(tokens[0], tokens[1])
+            self.host.proceed_after_query(tokens[0], tokens[1])
             return
 
         else:
@@ -610,7 +597,6 @@ class TransportLayer:
 
             self.connection_state[ip]  = "TIME WAIT"
             self.network_layer.deliver_to(ip, segment, "TCP")
-            print (self.host.get_time())
 
         return
 
@@ -774,7 +760,7 @@ class HTTPServer(Agent):
 
     def receive_message(self, message, sender):
         if message == "GET":
-            self.host.send_to(sender, "BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA ")
+            self.host.send_to(sender, "por o texto de verdade aqui. BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA ")
             
              # schedule connection close after 0.1 s.
             def close(event):
@@ -786,16 +772,32 @@ class HTTPServer(Agent):
 class HTTPClient(Agent):
     def __init__(self, word):
         Entity.__init__(self, word)
+        self.waiting_for_response = {}
 
     def do(self, time, command):
-        tokens = command.split()
-        ip = tokens[2]
-        message = "GET"
         self.host.set_time(time)
+        tokens  = command.split()
+        ip      = tokens[2]
+        message = "GET"
+
+        if not '.' in ip: #DNS query required.
+            self.do_DNS_query_and_send(ip, message)
+            return
+
         self.host.send_to(ip, message)
 
     def receive_message(self, message, sender):
         if debug: print ("recebi a resposta do GET. time: " + str(self.host.get_time()))
+        return
+
+    def do_DNS_query_and_send(self, query, message):
+        datagram = UDPDatagram(query)
+        self.waiting_for_response[query] = message
+        self.host.transport_layer.send_datagram_to(self.host.network_layer.dns_server, datagram)
+
+    def proceed_after_query(self, response, query):
+        message = self.waiting_for_response.pop(query, "")
+        self.host.send_to(response, message)
         return
 
 
@@ -805,12 +807,31 @@ class FTPServer(Agent):
     def __init__(self, word):
         Entity.__init__(self, word)
 
+    #TODO remover
     def process(self, packet):
         if ' GET ' in packet.command:
             packet.file = self.load()
         elif ' PUT ' in packet.command:
             self.copy(packet.file)
 
+    def receive_message(self, message, sender):
+        tokens = message.split()
+        if tokens[0] == "USER":
+            self.host.send_to(sender, "331 332 OK")
+            return
+
+        elif tokens[0] == "GET":
+            self.host.send_to(sender, "BLABLABLABLABLABLABLA")
+            return
+
+        elif tokens[0] == "PUT":
+            self.host.send_to(sender, "200 OK")
+            return
+
+        else:
+            self.host.send_to(sender, "200 OK")
+            return
+        return
 
 
 class FTPClient(Agent):
@@ -818,20 +839,62 @@ class FTPClient(Agent):
 
     def __init__(self, word):
         Entity.__init__(self, word)
+        self.message_stack    = {}
 
-    # initial message
-    def build_packet(packet, sender_ip, receiver_ip, ftpcommand):
-        self.host.prepareCommand(packet, sender_ip, receiver_ip)
-        #TODO construir mensagem aqui
-        if ' PUT ' in packet.command:
-            packet.file = self.load()
-        return "message"
+    def do(self, time, command):
+        self.host.set_time(time)
+        tokens  = command.split()    
+        message = tokens[1]
+        ip      = tokens[2]
 
-    # response
-    def process(self, packet):
-        if ' GET ' in packet.command:
-            self.copy(packet.file)
+        self.message_stack[ip] = ["QUIT"]
+        if message == "PUT":
+            self.message_stack[ip].append("PUT PUT PUT PUT PUT PUT PUT CONTENT HERE")
 
+        self.message_stack[ip].append(message)
+
+
+        if not '.' in ip: #DNS query required.
+            self.do_DNS_query_and_send(ip, "USER FTP_USER1 PASS 1234")
+            return
+
+        #Doing FTP authentication.
+        self.host.send_to(ip, "USER: FTP_USER1 PASS:1234")
+
+    def receive_message(self, message, sender):
+        if self.message_stack[sender]: #if I have another message in the stack for sender
+            new_message = self.message_stack[sender].pop()
+            self.host.send_to(sender, new_message)
+        
+        else:
+            #Close connection with server
+            self.message_stack.pop(sender, None)
+            self.host.close_connection(sender)
+            
+        return
+
+    def do_DNS_query_and_send(self, query, message):
+        #put message in stack to be delivered later
+        self.message_stack[query].append(message)
+        
+        datagram = UDPDatagram(query)
+        self.host.transport_layer.send_datagram_to(self.host.network_layer.dns_server, datagram)
+
+    def proceed_after_query(self, response, query):
+        #Change key of message stack from query to ip
+        stack = self.message_stack.pop(query)
+        self.message_stack[response] = stack
+
+        message = self.message_stack[response].pop()
+        self.host.send_to(response, message)
+        return
+
+#define WELCOME_MSG "220 Service ready for new user.\n"
+#define ACCEPT_USER_MSG "331 User name okay, need password.\n"
+#define PROMPT_USER_PASS "332 Need account for login.\n"
+#define ACCEPT_PASS_MSG "230 User logged in, proceed.\n"
+#define INVALID_COMMAND "501 Sintax error in parameters or arguments.\n"
+#define CLOSING_MSG "221 Service closing control connection.\n"
 
 class Sniffer(Entity):
     def __init__(self, word):
