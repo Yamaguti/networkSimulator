@@ -306,6 +306,7 @@ class Router(Entity):
     def __init__(self, word, interfaces):
         self.routing_table = {}
         self.queue_top             = [0    for each in range(int(interfaces))]
+        self.packet_queue          = [[]   for each in range(int(interfaces))]
         self.interface_ip          = [None for each in range(int(interfaces))]
         self.link_at_interface     = [None for each in range(int(interfaces))]
         self.interface_queue_limit = [None for each in range(int(interfaces))]
@@ -348,16 +349,26 @@ class Router(Entity):
 
         if router.queue_top[interface] < router.interface_queue_limit[interface]:
             router.queue_top[interface] += 1
+            router.packet_queue[interface].append(packet)
             
-            time = router.get_time() + (router.queue_top[interface] * router.delay) #TODO FIXME #+ (router.last_inserted + router.delay - packet.time)
-            
-            def process_packet(event):
-                router.queue_top[interface] -= 1
-                next_interface = router.get_interface_from_table(packet.receiver)
-                router.network_layer.repass_packet(packet, next_interface)
-                return
+            if router.queue_top[interface] == 1:
+                time = router.get_time() + router.delay
 
-            Event("message", time, process_packet)
+                def process_packet(event):
+                    router.queue_top[interface] -= 1
+                    packet = router.packet_queue[interface].pop(0)
+
+                    if router.queue_top[interface] != 0:
+                        Event("message", event.time + router.delay, process_packet)
+
+                    next_interface = router.get_interface_from_table(packet.receiver)
+                    router.network_layer.repass_packet(packet, next_interface)
+                    return
+
+                Event("message", time, process_packet)
+
+            else:
+                return
 
         else: # Queue is full, so packet is lost.
             packet = None
