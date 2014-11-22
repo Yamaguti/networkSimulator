@@ -86,8 +86,8 @@ class TCPSegment:
             data += 'Número de reconhecimento - ' + str(self.ack_number) + '\n'
 
         data += 'Bit ACK - ' + str(self.ACK) + '\n'
-        data += 'Bit FIN - ' + str(self.FIN) + '\n'
-        data += 'Bit SYN - ' + str(self.SYN) + '\n\n'
+        data += 'Bit SYN - ' + str(self.SYN) + '\n'
+        data += 'Bit FIN - ' + str(self.FIN) + '\n\n'
         return data
 
     def extract_message(segment):
@@ -110,7 +110,7 @@ class UDPDatagram:
         data = '> Camada de Transporte (UDP)\n'
         # data += 'Porta fonte - ' + self.sender_port + '\n'
         # data += 'Porta destino - ' + self.receiver_port + '\n'
-        data += 'Tamanho - ' + str(self.size) + '\n'
+        data += 'Tamanho - ' + str(self.size) + '\n\n'
 
         return data
 
@@ -149,6 +149,7 @@ class Event:
         Simulator.add_event(event)
 
     def process(event):
+        Simulator.time = event.time
         if event_pause: a = raw_input()
         if stack_print: traceback.print_stack(file=sys.stdout)
 
@@ -227,11 +228,8 @@ class Entity:
         self.identifier = word
         Simulator.add_entity(self.identifier, self)
 
-    def set_time(self, time):
-        self.time = time
-
     def get_time(self):
-        return self.time
+        return Simulator.time
 
     @staticmethod
     def get(identifier):
@@ -355,8 +353,8 @@ class Router(Entity):
             
             def process_packet(event):
                 router.queue_top[interface] -= 1
-                interface = router.get_interface_from_table(packet.receiver)
-                router.network_layer.repass_packet(packet, interface)
+                next_interface = router.get_interface_from_table(packet.receiver)
+                router.network_layer.repass_packet(packet, next_interface)
                 return
 
             Event("message", time, process_packet)
@@ -710,7 +708,6 @@ class LinkLayer:
         event = Event("message", self.entity.get_time(), insert_in_link)
 
     def receive_from_link(self, frame, interface, time):
-        self.entity.set_time(time)
         packet = frame.extract_packet()
         if debug: print ("Link Layer @ " + self.entity.__class__.__name__ + " " + self.entity.identifier + ":"),
         if debug: print ("frame received"),
@@ -777,7 +774,6 @@ class HTTPClient(Agent):
         self.waiting_for_response = {}
 
     def do(self, time, command):
-        self.host.set_time(time)
         tokens  = command.split()
         ip      = tokens[2]
         message = "GET"
@@ -846,7 +842,6 @@ class FTPClient(Agent):
         self.file = open(FTPClient.file_name, 'r')
 
     def do(self, time, command):
-        self.host.set_time(time)
         tokens  = command.split()    
         message = tokens[1]
         ip      = tokens[2]
