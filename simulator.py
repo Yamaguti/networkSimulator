@@ -3,70 +3,94 @@
 
 import sys
 import heapq
+import traceback
 
-class IPHeader:
-    TTL = 255
+#Debug - behavior control variables
+debug = 0
+event_pause = 0
+stack_print = 0
 
-    def __init__(self, package, transport_header):
-        self.sender = ""
-        self.receiver = ""
-        self.size = 0
-        self.ttl = IPHeader.TTL
-        self.protocol = transport_header.__class__.__name__
-        self.package = package
+# An ethernet frame simple implementation
+class EthernetFrame:
+    id_generator = 1
+    def __init__(frame, packet):
+        frame.packet = packet
+        frame.size   = packet.size + 24 # Ethernet frame is 24 bytes long
+        frame.id     = EthernetFrame.id_generator
+        EthernetFrame.id_generator += 1
 
     def __repr__(self):
-        data = '> Camada de Rede (IP)\n'
+        data = str(self.packet)
+        data += "> Camada de Enlace\n"
+        data += "Tamanho - " + str(self.size) + "\n"
+        data += "\n"
+        return data
+
+    def extract_packet(frame):
+        return frame.packet
+
+# IP packet implementation
+class IPPacket:
+    TTL = 10
+
+    def __init__(self, transport_packet, protocol):
+        self.sender = ""
+        self.receiver = ""
+        self.ttl = IPPacket.TTL
+        self.protocol = protocol
+        self.transport_packet = transport_packet
+        self.size = transport_packet.size + 20 # IP header is 20 bytes long
+
+
+    def __repr__(self):
+        data = str(self.transport_packet)
+        data += '> Camada de Rede (IP)\n'
         data += 'Endereço IP de origem - ' + self.sender + '\n'
         data += 'Endereço IP de destino - ' + self.receiver + '\n'
 
         protocol_number = '0'
-        if self.protocol == TCPHeader:
+        if self.protocol == "TCP":  #TCP
             protocol_number = '6'
-        elif self.protocol == UDPHeader:
+        elif self.protocol == "UDP": #UDP
             protocol_number = '17'
 
         data += 'Protocolo - ' + protocol_number + '\n'
-        # FIXME Calcular tamanho do cabeçalho IP e tudo das camadas acima
         data += 'Tamanho - ' + str(self.size) + '\n'
-        data += 'TTL - ' + str(self.ttl) + '\n'
+        data += 'TTL - ' + str(self.ttl) + '\n\n'
         return data
 
+    def extract_segment(packet):
+        return packet.transport_packet
 
-    def update_ttl(self):
-        self.ttl -= 1
-        if self.ttl == 0:
-            self.package.is_alive = False
-
-    def exchange_sender_with_receiver(self):
-        self.sender, self.receiver = self.receiver, self.sender
-
-
-# TCP hearder implementation
-class TCPHeader:
-    def __init__(self):
+# TCP packet implementation
+class TCPSegment:
+    def __init__(self, message):
         self.ACK = 0
         self.SYN = 0
         self.FIN = 0
-        self.protocol = "TCP"
-        self.sequence_number = 1
+        self.sequence_number = 0
         self.ack_number = 0
-        self.sender_port = 0
-        self.receiver_port = 0
+        # self.sender_port = 0
+        # self.receiver_port = 0
+        self.protocol = ""
+        self.message = message
+        self.size = len(message) + 20 # TCP header is 20 bytes long
 
     def __repr__(self):
         data = '> Camada de Transporte (TCP)\n'
-        data += 'Porta fonte - ' + str(self.sender_port) + '\n'
-        data += 'Porta destino - ' + str(self.receiver_port) + '\n'
+        # data += 'Porta fonte - ' + str(self.sender_port) + '\n'
+        # data += 'Porta destino - ' + str(self.receiver_port) + '\n'
         data += 'Número de sequência - ' + str(self.sequence_number) + '\n'
         if self.ACK:
             data += 'Número de reconhecimento - ' + str(self.ack_number) + '\n'
 
         data += 'Bit ACK - ' + str(self.ACK) + '\n'
         data += 'Bit FIN - ' + str(self.FIN) + '\n'
-        data += 'Bit SYN - ' + str(self.SYN) + '\n'
+        data += 'Bit SYN - ' + str(self.SYN) + '\n\n'
         return data
 
+    def extract_message(segment):
+        return segment.message
 
     def set_ports(self, source, destination):
         self.sender_port = source
@@ -74,17 +98,17 @@ class TCPHeader:
 
 
 
-# UDP hearder implementation
-class UDPHeader:
-    def __init__(self):
+# UDP datagram implementation
+class UDPDatagram:
+    def __init__(self, message):
         self.protocol = "UDP"
-        self.size = 0
+        self.message = message
+        self.size = len(message) + 8 # UDP header is 8 bytes long
 
     def __repr__(self):
         data = '> Camada de Transporte (UDP)\n'
-        data += 'Porta fonte - ' + self.sender_port + '\n'
-        data += 'Porta destino - ' + self.receiver_port + '\n'
-        # FIXME Calcular tamanho do cabeçalho IP e tudo das camadas acima
+        # data += 'Porta fonte - ' + self.sender_port + '\n'
+        # data += 'Porta destino - ' + self.receiver_port + '\n'
         data += 'Tamanho - ' + self.size + '\n'
 
         return data
@@ -94,143 +118,101 @@ class UDPHeader:
         self.receiver_port = destination
 
 
-# Commands to be executed and packages to be transmitted #############
-class Package:
+# Commands to be executed and packets to be transmitted #############
+class Event:
     id_generator = 1
 
-    def __init__(self, time, command):
-        self.is_alive = True
-        self.identifier = Package.get_new_id()
-        self.transport_header = TCPHeader()
-        self.ip_header = IPHeader(self, self.transport_header)
-        self.time = float(time)
-        self.command = command
-        self.on_link_delay = False
-        self.content = ""
-        self.__prepare_with(command)
-        Simulator.add_package(self)
+    def __init__(self, event_type, time, command):
+        self.time       = float(time)
+        self.command    = command
+        self.event_type = event_type
+        
+        self.prepare_event()
+        Simulator.add_event(self)
 
-    def __repr__(self):
-        data = 'Identificador do pacote - ' + str(self.identifier) + '\n'
-        data += 'Instante de Tempo - ' + str(self.time) + '\n'
-        data += repr(self.ip_header)
-        data += repr(self.transport_header)
-        data += 'Conteúdo do pacote - ' + self.content
+    def __repr__(event):
+        data  = 'Event time: '
+        data += event.time + '\n'
+        data  = 'Event type: '
+        data += event.event_type + '\n'
+        if event.event_type == "order":
+            data += ' command: '
+            data += event.command + '\n'
         return data
 
+    def reschedue(event, time):
+        event.time = time
+        Simulator.add_event(event)
 
-    def process(self):
-        if self.command == "finish":
-            Simulator.finish()
-            print("finished")
+    def process(event):
+        if event_pause: a = raw_input()
+        if stack_print: traceback.print_stack(file=sys.stdout)
+
+        if event.event_type == "order": #Simulator entry
+            if event.command == "finish":
+                Simulator.finish()
+                print("finished")
+                return
+
+            event.entity.do(event.time, event.command)
             return
 
-        if not isinstance(self.entity, Link):
-            self.last_entity = self.entity
-
-            if isinstance(self.entity, Host):
-                if not self.on_link_delay:
-                    self.entity.process(self) # Does host processing to message
-
-                link = self.entity.link # put me on link
-
-            else: # the only case left is that entity is a router
-                router = self.entity
-                link = router.route_to_link(self.ip_header.receiver)
-                if not self.on_link_delay:
-                    router.process(self) # Leaves queue
-
-            if not link.is_occupied():
-                self.time += link.delay + (len(self.content) / link.bps)
-                self.entity = link
-                self.on_link_delay = False
-                link.add_package(self)
-            else:
-                self.on_link_delay = True
-                self.time += link.time_to_be_free()
-
-        else: # here, entity is a Link
-            link = self.entity
-            link.occupied = False
-            if self.last_entity == link.extreme1:
-                extreme = link.extreme2
-                port = link.port2
-            else:
-                extreme = link.extreme1
-                port = link.port1
-            self.entity = extreme
-
-            if isinstance(extreme, Router):
-                extreme.pushPackageIntoQueue(self, port)
-
-            else:
-                self.time += 10 # TODO consertar isso
-                print ("hit a host on the network")
-
-
-        if self.is_alive:
-            Simulator.add_package(self)
-
-
-    def __prepare_with(self, command):
-        tokens = command.split()
-        if not tokens[0] == "finish":
-            self.entity = Entity.get(tokens[0]).host
-            self.ip_header.sender = self.entity.ip
-            if '.' in tokens[2]: # check if dns query needed
-                self.state = 3
-                self.ip_header.receiver = tokens[2]
-            else:
-                self.state = 1
-                self.ip_header.receiver = self.entity.dns_ip
-                self.entity.agent.build_package(self, self.ip_header.sender, self.ip_header.receiver, tokens[1])
+        else:
+            event.command(event)
+        return
 
     @staticmethod
     def get_new_id():
-        identifier = Package.id_generator
-        Package.id_generator += 1
+        identifier = Event.id_generator
+        Event.id_generator += 1
         return identifier
 
+    def prepare_event(self):
+        self.identifier = Event.get_new_id()
+        if self.event_type == "order":
+            tokens = self.command.split()
+            if not tokens[0] == "finish":
+                self.entity = Entity.get(tokens[0])
 
 
 # PriorityQueue ######################################################
-class PackageQueue:
+class EventQueue:
     def __init__(self):
-        self.packages = []
+        self.events = []
 
-    def add(self, package):
-        heapq.heappush(self.packages, (package.time, package))
+    def add(self, event):
+        heapq.heappush(self.events, (event.time, event))
 
     def get_next(self):
-        _, package = heapq.heappop(self.packages)
-        return package
+        _, event = heapq.heappop(self.events)
+        return event
 
     def empty(self):
-        return len(self.packages) == 0
+        return len(self.events) == 0
 
 # Simulator contains all the program entities and all the
 # commands which will happen #########################################
 class Simulator:
     entities = {}
-    packages = PackageQueue()
+    events = EventQueue()
 
     @staticmethod
     def add_entity(identifier, entity):
         Simulator.entities[identifier] = entity
 
     @staticmethod
-    def add_package(new_package):
-        Simulator.packages.add(new_package)
+    def add_event(new_event):
+        Simulator.events.add(new_event)
 
     @staticmethod
     def start():
-        while not Simulator.packages.empty():
-            Simulator.packages.get_next().process()
+        while not Simulator.events.empty():
+            Simulator.events.get_next().process()
 
     @staticmethod
     def finish():
-        while not Simulator.packages.empty():
-            Simulator.packages.get_next()
+        while not Simulator.events.empty():
+            Simulator.events.get_next()
         for sniffer in Entity.get_all(Sniffer):
             sniffer.finish()
 
@@ -241,6 +223,12 @@ class Entity:
         self.identifier = word
         Simulator.add_entity(self.identifier, self)
 
+    def set_time(self, time):
+        self.time = time
+
+    def get_time(self):
+        return self.time
+
     @staticmethod
     def get(identifier):
         return Simulator.entities[identifier]
@@ -249,7 +237,6 @@ class Entity:
     def get_all(wanted_class):
         return filter(lambda obj: isinstance(obj, wanted_class),
                         Simulator.entities.values())
-
 
 
 class Agent(Entity):
@@ -271,113 +258,120 @@ class Agent(Entity):
 
 ######################################################################
 class Host(Entity):
-    def __init__(self, word):
-        Entity.__init__(self, word)
-        self.transport_layer = TransportLayer()
+    def __init__(host, word):
+        Entity.__init__(host, word)
+        host.transport_layer = TransportLayer(host)
+        host.network_layer   = NetworkLayer(host)
+        host.link_layer      = LinkLayer(host)
+        host.set_layers()
 
-    def set_link(self, link):
-        self.link = link
+    def get_ip(host):
+        host.network_layer.my_ip
 
-    def set_agent(self, agent):
-        self.agent = agent
+    def set_layers(host):
+        host.transport_layer.set_layers()        
+        host.network_layer.set_layers()
+        host.link_layer.set_layers()
 
-    def set_ips(self, my_ip, standard_router, dns_server):
-        self.ip = my_ip
-        self.router_ip = standard_router
-        self.dns_ip = dns_server
+    def set_link(host, link):
+        host.link = link
+        host.link_layer.set_link(link)
 
-    def process(self, package):
-        state = package.state
-        print ("state: " + str(state))
+    def set_agent(host, agent):
+        host.agent = agent
 
-        package.state += 1
-        package.identifier = Package.get_new_id()
-        package.ip_header.exchange_sender_with_receiver()
-        self.prepareCommand(package, package.ip_header.sender, package.ip_header.receiver)
+    def set_ips(host, my_ip, standard_router, dns_server):
+        host.network_layer.set_ips(my_ip, standard_router, dns_server)
 
-    def prepareCommand(self, package, sender_ip, receiver_ip):
-        state = package.state
-        if state == 1:
-            package.content = package.command.split()[2]
-        elif state == 2:
-            if isinstance(self.agent, DNSServer): #TODO FIXME
-                self.agent.process(package)
-        elif state > 2 and state < 6:
-            package.ip_header.receiver_ip = package.content
-            self.transport_layer.do_three_way_handshake(package, sender_ip, package.content)
+    def send_to(host, ip, message):
+        if debug: print ("giving message: " + message + " to tranport")
+        host.transport_layer.send_message(ip, message)
 
+    def close_connection(host, sender):
+        host.transport_layer.close_connection(sender)
 
+    def process(host, message, sender):
+        if debug: print ("message reached host. Received: " + message)
+        host.agent.receive_message(message, sender)
+        return
 
 
 class Router(Entity):
     def __init__(self, word, interfaces):
-        self.link_at_door = [None for each in range(int(interfaces))]
-        self.door_ip = [None for each in range(int(interfaces))]
-        self.door_limit = [None for each in range(int(interfaces))]
-        self.queue_top = [0 for each in range(int(interfaces))]
-        self.last_inserted = None
         self.routing_table = {}
+        self.queue_top             = [0    for each in range(int(interfaces))]
+        self.interface_ip          = [None for each in range(int(interfaces))]
+        self.link_at_interface     = [None for each in range(int(interfaces))]
+        self.interface_queue_limit = [None for each in range(int(interfaces))]
+        self.transport_layer = None
+        
+        self.link_layer      = LinkLayer(self)
+        self.network_layer   = NetworkLayer(self)
+        self.link_layer.set_layers()
+        self.network_layer.set_layers()
+        
         Entity.__init__(self, word)
 
     def set_delay(self, process_time):
         self.delay = float(process_time)/1000000
 
-    def set_ip_at(self, door_number, ip):
-        self.door_ip[int(door_number)] = ip
+    def set_ip_at(self, interface, ip):
+        self.interface_ip[int(interface)] = ip
 
-    def set_limit(self, door_number, package_limit):
-        self.door_limit[int(door_number)] = int(package_limit)
+    def set_limit(self, interface, packet_limit):
+        self.interface_queue_limit[int(interface)] = int(packet_limit)
 
-    def set_link(self, door_number, link):
-        self.link_at_door[int(door_number)] = link
+    def set_link(self, interface, link):
+        self.link_at_interface[int(interface)] = link
 
     def update_table(self, origin, destination):
         key = origin[0: origin.rfind('.')]
         self.routing_table[key] = destination
 
-    def route_to_link(self, origin):
-        key = origin[0: origin.rfind('.')]
+    def get_interface_from_table(self, destination):
+        key = destination[0: destination.rfind('.')]
         while '.' in self.routing_table[key]:
             key = self.routing_table[key]
             key = key[0: key.rfind('.')]
-        port = int(self.routing_table[key])
-        return self.link_at_door[port]
+        interface = int(self.routing_table[key])
+        return interface
 
-    def process(self, package):
-        link = self.route_to_link(package.ip_header.receiver)
-        port = link.get_port_from(self)
-        self.queue_top[port] -= 1
-        if self.queue_top[port] == 0:
-            self.last_inserted = None
-        else:
-            self.last_inserted = self.last_inserted + self.delay
+    def push_packet_into_queue(router, interface, packet):
+        if debug: print ("On Router " + router.__class__.__name__ + " " + router.identifier + ", interface " + str(interface) + ":"),
+        if debug: print ("Packet Arrived")
 
-    def pushPackageIntoQueue(self, package, port):
-        if self.queue_top[port] < self.door_limit[port]:
-            if not self.last_inserted:
-                self.last_inserted = package.time
+        if router.queue_top[interface] < router.interface_queue_limit[interface]:
+            router.queue_top[interface] += 1
+            
+            time = router.get_time() + (router.queue_top[interface] * router.delay) #TODO FIXME #+ (router.last_inserted + router.delay - packet.time)
+            
+            def process_packet(event):
+                interface = router.get_interface_from_table(packet.receiver)
+                router.network_layer.repass_packet(packet, interface)
+                return
 
-            package.time += (self.queue_top[port] * self.delay) + (self.last_inserted + self.delay - package.time)
-            self.queue_top[port] += 1
+            Event("message", time, process_packet)
 
-        else:
-            package.is_alive = False # Queue is full, so package is lost.
+        else: # Queue is full, so packet is lost.
+            packet = None
+            return
 
 
 class Link:
     def __init__(self, entity_list1, entity_list2, Mbps, delay):
         self.extreme1, self.port1 = self.__warn_and_get_entity(entity_list1)
         self.extreme2, self.port2 = self.__warn_and_get_entity(entity_list2)
-        self.bps = float(Mbps)/(1024 * 1024)
-        self.delay = float(delay)/1000
-        self.occupied = False
         self.sniffers = []
+        self.occupied = False
+        self.frame    = None
+        self.bps      = float(Mbps)*(1024 * 1024)
+        self.delay    = float(delay)/1000
 
     def add_sniffer(self, sniffer):
         self.sniffers.append(sniffer)
 
     def __warn_and_get_entity(self, entity_list):
-        if len(entity_list) > 1: # [router, port]
+        if len(entity_list) > 1: # [router, interface]
             router = Entity.get(entity_list[0])
             router.set_link(entity_list[1], self)
             return (router, int(entity_list[1]))
@@ -389,14 +383,36 @@ class Link:
     def is_occupied(self):
         return self.occupied
 
-    def add_package(self, package): #TODO fazer isso aqui certo
-        self.occupied = True
-        self.package = package
+    def clear(link):
+        link.frame    = None
+        link.occupied = False
+        link.no_longer_occupied_time = None
+
+    def add_frame(self, frame, event_time, sender):
+        self.occupied      = True
+        self.frame         = frame
+        time               = self.delay + (frame.size*8 / self.bps)
+        extreme, interface = self.get_other_extreme(sender)
         self.be_sniffed()
-        self.no_longer_occupied_time = package.time
+        
+        self.no_longer_occupied_time = time + event_time + 0.0001
+
+        def remove_frame(event):
+            if debug: print ("Frame id " + str(frame.id) + " saiu do link! time: " + str(event_time + time))
+            self.clear()
+            extreme.receive_from_link(frame, interface, event.time)
+            return
+        
+        event = Event("message", event_time + time, remove_frame) # reach other extreme of link
+        return
 
     def time_to_be_free(self):
         return self.no_longer_occupied_time
+
+    def get_other_extreme(link, extreme):
+        if extreme == link.extreme1:
+            return link.extreme2.link_layer, link.port2
+        return link.extreme1.link_layer, link.port1
 
     def get_port_from(self, router):
         if self.extreme1 == router:
@@ -406,44 +422,298 @@ class Link:
 
     def be_sniffed(self):
         for sniffer in self.sniffers:
-            sniffer.write(self.package)
+            sniffer.write(self.frame)
 
-
-# class UDP_Datagram:
-#     def __init__(self, sender_ip, receiver_ip, content):
-#         self.sender_ip = sender_ip
-#         self.receiver_ip = receiver_ip
-#         self.size = len(content)
-#         self.content = content
-
+#TODO pensar na porta...
 class TransportLayer:
-    def __init__ (self):
-        self.sequence_number = 1
+    def __init__ (self, host):
+        self.host = host
+        self.messages_to_be_send = {}
+        self.sequence_numbers    = {}
+        self.open_connections    = {}
+        self.connection_state    = {}
+        
+    def set_layers(self):
+        self.network_layer = self.host.network_layer
 
-    def do_three_way_handshake(self, package, sender_ip, receiver_ip):
-        tcp_header = package.transport_header
-        state = package.state
-        if state == 3:
-            tcp_header.ACK = 0
-            tcp_header.SYN = 1
-            package.ip_header.size = 1
-            tcp_header.sequence_number = self.sequence_number
-            self.sequence_number + 1
 
-        elif state == 4:
-            tcp_header.ACK = 1
-            tcp_header.ack_number = tcp_header.sequence_number + package.ip_header.size + 1
+    ### TCP methods
+    def send_message(self, receiver, message):
+        if debug: print ("Transport Layer @ " + self.host.__class__.__name__ + " " + self.host.identifier + ":"),
+        if debug: print ("message arrived")
+        if not receiver in self.open_connections: #if connection is not already open
+            self.messages_to_be_send[receiver] = message
+            self.do_three_way_handshake(receiver) # send message after 'second handshake'
+        else:
+            self.send_trough_open_connection(receiver, message)
+        return 
+    
+    def send_trough_open_connection(self, receiver, message):
+        application_segment                  = TCPSegment(message)
+        self.sequence_numbers[receiver]     += len(message)
+        application_segment.sequence_number  = self.sequence_numbers[receiver]
+        application_segment.is_tcp_message   = False
+        
+        self.network_layer.deliver_to(receiver, application_segment, "TCP")
+        return
 
-            tcp_header.SYN = 1
-            tcp_header.sequence_number = self.sequence_number
-            self.sequence_number + 1
+    def do_three_way_handshake(self, ip):
+        segment = TCPSegment("")
+        segment.SYN = 1
+        segment.sequence_number = 1
+        segment.is_tcp_message  = 1
+        self.sequence_numbers[ip] = 1
+        self.network_layer.deliver_to(ip, segment, "TCP")
 
-            package.ip_header.size = 1 # TODO FIXME
 
-        elif state == 5:
-            tcp_header.SIN = 0
-            tcp_header.ACK = 1
-            tcp_header.ack_number = tcp_header.sequence_number + package.ip_header.size + 1
+    def close_connection(self, ip):
+        self.messages_to_be_send.pop(ip, None)
+        self.open_connections.pop(ip, None)
+        
+        segment = TCPSegment("")
+        segment.is_tcp_message     = 1
+        self.sequence_numbers[ip] += 1
+        segment.sequence_number    = self.sequence_numbers[ip]
+        segment.FIN                = 1
+
+        self.connection_state[ip]  = "FIN WAIT 1"
+        self.network_layer.deliver_to(ip, segment, "TCP")
+
+
+    def receive_from_network_layer(self, packet):
+        if debug: print ("Transport Layer @ " + self.host.__class__.__name__ + " " + self.host.identifier + ":"),
+        if debug: print ("message arrived")
+        segment = packet.extract_segment()
+
+        if debug: print (" ")
+        if debug: print (" ")
+        if debug: print (" ")
+        if debug: print (self.host.__class__.__name__ + " " + self.host.identifier)
+        if debug: print (" ")
+        if debug: print (" ")
+        if debug: print (" ")
+
+        if segment.is_tcp_message:
+            self.respond_tcp_message(packet)
+            return
+        else:
+            self.host.process(segment.extract_message(), packet.sender)
+            return
+        return
+
+
+    def respond_tcp_message(self, packet):
+        ip = packet.sender
+        segment = packet.extract_segment()
+
+        if TransportLayer.is_first_handshake(segment):
+            response = TCPSegment("")
+            response.SYN = 1
+            response.ACK = 1
+            response.sequence_number = 1
+            self.sequence_numbers[ip] = 1
+            response.ack_number = segment.sequence_number + 1
+            response.is_tcp_message  = 1
+
+            self.network_layer.deliver_to(ip, response, "TCP")
+            return
+
+        elif TransportLayer.is_second_handshake(segment):
+            self.open_connections[ip] = True
+
+            response     = TCPSegment("")
+            response.ACK = 1
+            self.sequence_numbers[ip] += 1
+            response.sequence_number   = self.sequence_numbers[ip]
+            response.ack_number        = segment.sequence_number + 1
+            response.is_tcp_message    = 1
+
+            self.network_layer.deliver_to(ip, response, "TCP")
+
+            message = self.messages_to_be_send[ip]
+            self.messages_to_be_send[ip]        = None
+            application_segment                 = TCPSegment(message)
+            self.sequence_numbers[ip]          += len(message)
+            application_segment.sequence_number = self.sequence_numbers[ip]
+            application_segment.is_tcp_message  = False
+
+            def send(event):
+                self.network_layer.deliver_to(ip, application_segment, "TCP")
+
+            Event("message", self.host.get_time() + 0.1, send)
+            return
+        
+        elif self.is_third_handshake(segment):
+            self.open_connections[ip] = True
+            if debug: print (" ")
+            if debug: print ("done")
+            if debug: print (" ")
+            return
+
+        elif self.is_close_wait_message(segment, ip):
+            self.messages_to_be_send.pop(ip, None)
+            self.open_connections.pop(ip, None)
+
+            segment = TCPSegment("")
+            segment.is_tcp_message     = 1
+            self.sequence_numbers[ip] += 1
+            segment.sequence_number    = self.sequence_numbers[ip]
+            segment.ack_number         = segment.sequence_number + 1
+            segment.ACK                = 1
+
+            self.connection_state[ip]  = "CLOSE WAIT"
+            self.network_layer.deliver_to(ip, segment, "TCP")
+
+            def send_fin(event):
+                segment = TCPSegment("")
+                segment.is_tcp_message     = 1
+                self.sequence_numbers[ip] += 1
+                segment.sequence_number    = self.sequence_numbers[ip]
+                segment.FIN                = 1
+
+                self.connection_state[ip]  = "LAST ACK"
+                self.network_layer.deliver_to(ip, segment, "TCP")
+
+            Event("message", self.host.get_time() + 0.1, send_fin)
+
+        elif self.is_last_ack_message(segment, ip):
+            segment = TCPSegment("")
+            segment.is_tcp_message     = 1
+            self.sequence_numbers[ip] += 1
+            segment.sequence_number    = self.sequence_numbers[ip]
+            segment.ack_number         = segment.sequence_number + 1
+            segment.ACK                = 1
+
+            self.connection_state[ip]  = "TIME WAIT"
+            self.network_layer.deliver_to(ip, segment, "TCP")
+            print (self.host.get_time())
+
+        return
+
+    # 3 way handshake methods
+    @staticmethod
+    def is_first_handshake(segment):
+        if segment.ACK == 0 and segment.SYN == 1:
+            return True
+        return False
+
+    @staticmethod
+    def is_second_handshake(segment):
+        if segment.ACK == 1 and segment.SYN == 1:
+            return True
+        return False
+    
+    @staticmethod
+    def is_third_handshake(segment):
+        if segment.ACK == 1 and segment.SYN == 0:
+            return True
+        return False
+
+    # closing connection methods
+    def is_close_wait_message(self, segment, sender):
+        if (segment.FIN == 1) and (not sender in self.connection_state):
+            return True
+        return False
+
+    def is_last_ack_message(self, segment, sender):
+        if (segment.FIN == 1):
+            if sender in self.connection_state:
+                if self.connection_state[sender] == "FIN WAIT 1":
+                    return True
+        return False
+
+    ### UDP methods
+    
+
+class NetworkLayer:
+    def __init__(self, entity):
+        self.entity = entity
+        
+    def set_layers(self):
+        self.transport_layer = self.entity.transport_layer
+        self.link_layer = self.entity.link_layer
+
+    def set_ips(self, my_ip, standard_router, dns_server):
+        self.my_ip           = my_ip
+        self.standard_router = standard_router
+        self.dns_server      = dns_server
+
+    def deliver_to(self, ip, segment, protocol):
+        if debug: print ("Network Layer @ " + self.entity.__class__.__name__ + " " + self.entity.identifier + ":"),
+        if debug: print ("segment arrived")
+        ip_packet = IPPacket(segment, protocol)
+        ip_packet.sender   = self.my_ip
+        ip_packet.receiver = ip
+
+        self.link_layer.deliver_to(ip_packet)
+
+    def receive_from_link_layer(self, packet, interface):
+        if debug: print ("network layer @ " + self.entity.__class__.__name__ + " " + self.entity.identifier),
+        if interface != None: #must hand over packet to someone
+            if debug: print ("interface " + str(interface))
+            self.entity.push_packet_into_queue(interface, packet)
+
+        else: #must give to transport layer
+            if debug: print ("")
+            self.transport_layer.receive_from_network_layer(packet)
+        return
+
+    def repass_packet(self, packet, interface):
+        if debug: print ("network layer @ " + self.entity.__class__.__name__ + " " + self.entity.identifier),
+        if debug: print ("Repassing packet to link layer")
+
+        packet.ttl -= 1
+        if not packet.ttl == 0:
+            self.link_layer.repass_packet(packet, interface)
+
+
+class LinkLayer:
+    def __init__(self, entity):
+        self.entity = entity
+
+    def set_layers(self):
+        self.network_layer = self.entity.network_layer
+
+    def set_link(self, link):
+        self.link = link
+
+    def deliver_to(self, packet):
+        if debug: print ("Link Layer @ " + self.entity.__class__.__name__ + " " + self.entity.identifier + ":"),
+        if debug: print ("packet arrived")
+        link  = self.link
+        frame = EthernetFrame(packet)
+        self.put_in_link(link, frame)
+
+    def put_in_link(self, link, frame):
+        def insert_in_link(event):
+            if not (link.is_occupied()):
+                if debug: print ("Frame id " + str(frame.id) + " entrou no link. time: " + str(event.time))
+                entity = self.entity
+                link.add_frame(frame, event.time, entity)
+            else:
+                if debug: print ("Frame id " + str(frame.id) + " não entrou no link. time: " + str(link.time_to_be_free()))
+                event.reschedue(link.time_to_be_free())
+
+        event = Event("message", self.entity.get_time(), insert_in_link)
+
+    def receive_from_link(self, frame, interface, time):
+        self.entity.set_time(time)
+        packet = frame.extract_packet()
+        if debug: print ("Link Layer @ " + self.entity.__class__.__name__ + " " + self.entity.identifier + ":"),
+        if debug: print ("frame received"),
+        if interface != None:
+            if debug: print ("@ interface: " + str(interface))
+        else:
+            if debug: print ("")
+        self.network_layer.receive_from_link_layer(packet, interface)
+        return
+
+    def repass_packet(self, packet, interface):
+        if debug: print ("Link Layer @ " + self.entity.__class__.__name__ + " " + self.entity.identifier + ":"),
+        if debug: print ("repassing packet")
+        link  = self.entity.link_at_interface[interface]
+        frame = EthernetFrame(packet)
+        self.put_in_link(link, frame)
 
 
 class DNSServer(Agent):
@@ -452,13 +722,14 @@ class DNSServer(Agent):
         self.table = {}
 
         for host in Entity.get_all(Host):
-            self.table[host.identifier] = host.ip
+            self.table[host.identifier] = host.get_ip()
 
     def translate(self, identifier):
         return self.table[identifier]
 
-    def process(self, package):
-        package.content = self.translate(package.content)
+    def process(self, packet):
+        # packet.content = self.translate(packet.content)
+        return
 
 
 class HTTPServer(Agent):
@@ -467,18 +738,39 @@ class HTTPServer(Agent):
     def __init__(self, word):
         Entity.__init__(self, word)
 
-    def process(self, package):
-        package.file = self.load()
+    def process(self, packet):
+        packet.file = self.load()
 
+    def receive_message(self, message, sender):
+        if message == "GET":
+            self.host.send_to(sender, "BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA BLA ")
+            
+             # schedule connection close after 0.1 s.
+            def close(event):
+                self.host.close_connection(sender)
+
+            Event("message", self.host.get_time() + 0.1, close)
+        return
 
 class HTTPClient(Agent):
     def __init__(self, word):
         Entity.__init__(self, word)
 
-    def build_package(self, package, sender_ip, receiver_ip, httpcommand):
-        self.host.prepareCommand(package, sender_ip, receiver_ip)
-        return "message"
-        
+    def do(self, time, command):
+        tokens = command.split()
+        if not '.' in tokens[2]: #DNS query required.
+            # Not yet done
+            return
+
+        ip = tokens[2]
+        message = "GET"
+        self.host.set_time(time)
+        self.host.send_to(ip, message)
+
+    def receive_message(self, message, sender):
+        if debug: print ("recebi a resposta do GET. time: " + str(self.host.get_time()))
+        return
+
 
 class FTPServer(Agent):
     file_name = 'copy.txt'
@@ -486,11 +778,12 @@ class FTPServer(Agent):
     def __init__(self, word):
         Entity.__init__(self, word)
 
-    def process(self, package):
-        if ' GET ' in package.command:
-            package.file = self.load()
-        elif ' PUT ' in package.command:
-            self.copy(package.file)
+    def process(self, packet):
+        if ' GET ' in packet.command:
+            packet.file = self.load()
+        elif ' PUT ' in packet.command:
+            self.copy(packet.file)
+
 
 
 class FTPClient(Agent):
@@ -500,17 +793,17 @@ class FTPClient(Agent):
         Entity.__init__(self, word)
 
     # initial message
-    def build_package(package, sender_ip, receiver_ip, ftpcommand):
-        self.host.prepareCommand(package, sender_ip, receiver_ip)
+    def build_packet(packet, sender_ip, receiver_ip, ftpcommand):
+        self.host.prepareCommand(packet, sender_ip, receiver_ip)
         #TODO construir mensagem aqui
-        if ' PUT ' in package.command:
-            package.file = self.load()
+        if ' PUT ' in packet.command:
+            packet.file = self.load()
         return "message"
 
     # response
-    def process(self, package):
-        if ' GET ' in package.command:
-            self.copy(package.file)
+    def process(self, packet):
+        if ' GET ' in packet.command:
+            self.copy(packet.file)
 
 
 class Sniffer(Entity):
@@ -520,17 +813,17 @@ class Sniffer(Entity):
     def prepare(self, entity_list, file_name):
         entity = Entity.get(entity_list[0])
         if len(entity_list) > 1: # [router, port]
-            link = entity.link_at_door[int(entity_list[1])]
+            link = entity.link_at_interface[int(entity_list[1])]
         else: # [host]
             link = entity.link
         link.add_sniffer(self)
         self.file = open(file_name, 'w')
 
-    def write(self, package):
+    def write(self, frame):
         self.file.write('Sniffer - ' + self.identifier + '\n')
         print 'Sniffer - ' + self.identifier + '\n'
-        self.file.write(repr(package) + '\n')
-        print package
+        self.file.write(str(frame) + '\n')
+        print frame
 
     def finish(self):
         self.file.close()
@@ -605,7 +898,7 @@ class Reader:
 
         elif '$simulator at ' in line:
             tokens = line.split(' ', 3)
-            Package(tokens[2], tokens[3].replace('"', ''))
+            Event("order", tokens[2], tokens[3].replace('"', ''))
 
         elif len(tokens) == 5:
             host = Entity.get(tokens[1])
