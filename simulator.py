@@ -6,9 +6,10 @@ import heapq
 import traceback
 
 #Debug - behavior control variables
-debug = 0
-event_pause = 0
-stack_print = 0
+debug         = 0
+event_pause   = 0
+stack_print   = 0
+shut_sniffers = 0
 
 # An ethernet frame simple implementation
 class EthernetFrame:
@@ -109,13 +110,16 @@ class UDPDatagram:
         data = '> Camada de Transporte (UDP)\n'
         # data += 'Porta fonte - ' + self.sender_port + '\n'
         # data += 'Porta destino - ' + self.receiver_port + '\n'
-        data += 'Tamanho - ' + self.size + '\n'
+        data += 'Tamanho - ' + str(self.size) + '\n'
 
         return data
 
     def set_ports(self, source, destination):
         self.sender_port = source
         self.receiver_port = destination
+
+    def extract_message(self):
+        return self.message
 
 
 # Commands to be executed and packets to be transmitted #############
@@ -263,10 +267,12 @@ class Host(Entity):
         host.transport_layer = TransportLayer(host)
         host.network_layer   = NetworkLayer(host)
         host.link_layer      = LinkLayer(host)
+
+        host.waiting_for_response = {}
         host.set_layers()
 
     def get_ip(host):
-        host.network_layer.my_ip
+        return host.network_layer.my_ip
 
     def set_layers(host):
         host.transport_layer.set_layers()        
@@ -284,14 +290,29 @@ class Host(Entity):
         host.network_layer.set_ips(my_ip, standard_router, dns_server)
 
     def send_to(host, ip, message):
+        if not '.' in ip: #DNS query required.
+            host.do_DNS_query_and_send(ip, message)
+            return
+
         if debug: print ("giving message: " + message + " to tranport")
         host.transport_layer.send_message(ip, message)
 
     def close_connection(host, sender):
         host.transport_layer.close_connection(sender)
 
+    def do_DNS_query_and_send(host, query, message):
+        datagram = UDPDatagram(query)
+        host.waiting_for_response[query] = message
+        host.transport_layer.send_datagram_to(host.network_layer.dns_server, datagram)
+        return
+
+    def proceed_afer_query(host, response, query):
+        print ("proceeding after query. Result: " + response + "\n\n")
+        message = host.waiting_for_response.pop(query, None)
+        host.send_to(response, message)
+        return
+
     def process(host, message, sender):
-        if debug: print ("message reached host. Received: " + message)
         host.agent.receive_message(message, sender)
         return
 
@@ -433,8 +454,36 @@ class TransportLayer:
         self.open_connections    = {}
         self.connection_state    = {}
         
+
     def set_layers(self):
         self.network_layer = self.host.network_layer
+
+
+    def receive_from_network_layer(self, packet):
+        if debug: print ("Transport Layer @ " + self.host.__class__.__name__ + " " + self.host.identifier + ":"),
+        if debug: print ("message arrived")
+        segment = packet.extract_segment()
+
+        if debug: print (" ")
+        if debug: print (" ")
+        if debug: print (self.host.__class__.__name__ + " " + self.host.identifier)
+        if debug: print (" ")
+        if debug: print (" ")
+
+
+        if hasattr(segment, 'is_tcp_message'):
+            self.respond_tcp_message(packet)
+            return
+        
+        elif hasattr(segment, 'is_dns_response'):
+            tokens = segment.extract_message().split()
+            self.host.proceed_afer_query(tokens[0], tokens[1])
+            return
+
+        else:
+            self.host.process(segment.extract_message(), packet.sender)
+            return
+        return
 
 
     ### TCP methods
@@ -452,7 +501,6 @@ class TransportLayer:
         application_segment                  = TCPSegment(message)
         self.sequence_numbers[receiver]     += len(message)
         application_segment.sequence_number  = self.sequence_numbers[receiver]
-        application_segment.is_tcp_message   = False
         
         self.network_layer.deliver_to(receiver, application_segment, "TCP")
         return
@@ -479,29 +527,6 @@ class TransportLayer:
         self.connection_state[ip]  = "FIN WAIT 1"
         self.network_layer.deliver_to(ip, segment, "TCP")
 
-
-    def receive_from_network_layer(self, packet):
-        if debug: print ("Transport Layer @ " + self.host.__class__.__name__ + " " + self.host.identifier + ":"),
-        if debug: print ("message arrived")
-        segment = packet.extract_segment()
-
-        if debug: print (" ")
-        if debug: print (" ")
-        if debug: print (" ")
-        if debug: print (self.host.__class__.__name__ + " " + self.host.identifier)
-        if debug: print (" ")
-        if debug: print (" ")
-        if debug: print (" ")
-
-        if segment.is_tcp_message:
-            self.respond_tcp_message(packet)
-            return
-        else:
-            self.host.process(segment.extract_message(), packet.sender)
-            return
-        return
-
-
     def respond_tcp_message(self, packet):
         ip = packet.sender
         segment = packet.extract_segment()
@@ -510,10 +535,10 @@ class TransportLayer:
             response = TCPSegment("")
             response.SYN = 1
             response.ACK = 1
-            response.sequence_number = 1
-            self.sequence_numbers[ip] = 1
+            response.sequence_number  = 2
+            self.sequence_numbers[ip] = 2
             response.ack_number = segment.sequence_number + 1
-            response.is_tcp_message  = 1
+            response.is_tcp_message   = 1
 
             self.network_layer.deliver_to(ip, response, "TCP")
             return
@@ -535,7 +560,6 @@ class TransportLayer:
             application_segment                 = TCPSegment(message)
             self.sequence_numbers[ip]          += len(message)
             application_segment.sequence_number = self.sequence_numbers[ip]
-            application_segment.is_tcp_message  = False
 
             def send(event):
                 self.network_layer.deliver_to(ip, application_segment, "TCP")
@@ -623,7 +647,9 @@ class TransportLayer:
         return False
 
     ### UDP methods
-    
+    def send_datagram_to(self, ip, datagram):
+        self.network_layer.deliver_to(ip, datagram, "UDP")
+        
 
 class NetworkLayer:
     def __init__(self, entity):
@@ -727,9 +753,13 @@ class DNSServer(Agent):
     def translate(self, identifier):
         return self.table[identifier]
 
-    def process(self, packet):
-        # packet.content = self.translate(packet.content)
-        return
+    def receive_message(self, message, sender):
+        response = self.translate(message)
+        datagram = UDPDatagram(response + " "  + message)
+        datagram.is_dns_response = True
+        self.host.transport_layer.send_datagram_to(sender, datagram)
+            
+        
 
 
 class HTTPServer(Agent):
@@ -738,6 +768,7 @@ class HTTPServer(Agent):
     def __init__(self, word):
         Entity.__init__(self, word)
 
+    # TODO remove
     def process(self, packet):
         packet.file = self.load()
 
@@ -758,10 +789,6 @@ class HTTPClient(Agent):
 
     def do(self, time, command):
         tokens = command.split()
-        if not '.' in tokens[2]: #DNS query required.
-            # Not yet done
-            return
-
         ip = tokens[2]
         message = "GET"
         self.host.set_time(time)
@@ -821,9 +848,9 @@ class Sniffer(Entity):
 
     def write(self, frame):
         self.file.write('Sniffer - ' + self.identifier + '\n')
-        print 'Sniffer - ' + self.identifier + '\n'
+        if not shut_sniffers: print 'Sniffer - ' + self.identifier + '\n'
         self.file.write(str(frame) + '\n')
-        print frame
+        if not shut_sniffers: print frame
 
     def finish(self):
         self.file.close()
