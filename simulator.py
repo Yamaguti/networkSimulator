@@ -575,15 +575,15 @@ class TransportLayer:
             self.messages_to_be_send.pop(ip, None)
             self.open_connections.pop(ip, None)
 
-            segment = TCPSegment("")
-            segment.is_tcp_message     = 1
+            new_segment = TCPSegment("")
+            new_segment.is_tcp_message     = 1
             self.sequence_numbers[ip] += 1
-            segment.sequence_number    = self.sequence_numbers[ip]
-            segment.ack_number         = segment.sequence_number + 1
-            segment.ACK                = 1
+            new_segment.sequence_number    = self.sequence_numbers[ip]
+            new_segment.ack_number         = segment.sequence_number + 1
+            new_segment.ACK                = 1
 
             self.connection_state[ip]  = "CLOSE WAIT"
-            self.network_layer.deliver_to(ip, segment, "TCP")
+            self.network_layer.deliver_to(ip, new_segment, "TCP")
 
             def send_fin(event):
                 segment = TCPSegment("")
@@ -598,15 +598,15 @@ class TransportLayer:
             Event("message", self.host.get_time() + 0.1, send_fin)
 
         elif self.is_last_ack_message(segment, ip):
-            segment = TCPSegment("")
-            segment.is_tcp_message     = 1
+            new_segment = TCPSegment("")
+            new_segment.is_tcp_message     = 1
             self.sequence_numbers[ip] += 1
-            segment.sequence_number    = self.sequence_numbers[ip]
-            segment.ack_number         = segment.sequence_number + 1
-            segment.ACK                = 1
+            new_segment.sequence_number    = self.sequence_numbers[ip]
+            new_segment.ack_number         = segment.sequence_number + 1
+            new_segment.ACK                = 1
 
             self.connection_state[ip]  = "TIME WAIT"
-            self.network_layer.deliver_to(ip, segment, "TCP")
+            self.network_layer.deliver_to(ip, new_segment, "TCP")
 
         return
 
