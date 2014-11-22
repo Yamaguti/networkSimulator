@@ -22,9 +22,8 @@ class EthernetFrame:
 
     def __repr__(self):
         data = str(self.packet)
-        data += "> Camada de Enlace\n"
-        data += "Tamanho - " + str(self.size) + "\n"
-        data += "\n"
+        data += '### Camada de Enlace ###\n\n'
+        data += '\tTamanho - ' + str(self.size) + '\n'
         return data
 
     def extract_packet(frame):
@@ -45,9 +44,9 @@ class IPPacket:
 
     def __repr__(self):
         data = str(self.transport_packet)
-        data += '> Camada de Rede (IP)\n'
-        data += 'Endereço IP de origem - ' + self.sender + '\n'
-        data += 'Endereço IP de destino - ' + self.receiver + '\n'
+        data += '### Camada de Rede (IP) ###\n\n'
+        data += '\tEndereço IP de origem  - ' + self.sender + '\n'
+        data += '\tEndereço IP de destino - ' + self.receiver + '\n'
 
         protocol_number = '0'
         if self.protocol == "TCP":  #TCP
@@ -55,9 +54,9 @@ class IPPacket:
         elif self.protocol == "UDP": #UDP
             protocol_number = '17'
 
-        data += 'Protocolo - ' + protocol_number + '\n'
-        data += 'Tamanho - ' + str(self.size) + '\n'
-        data += 'TTL - ' + str(self.ttl) + '\n\n'
+        data += '\tProtocolo - ' + protocol_number + '\n'
+        data += '\tTamanho   - ' + str(self.size) + '\n'
+        data += '\tTTL       - ' + str(self.ttl) + '\n\n'
         return data
 
     def extract_segment(packet):
@@ -78,16 +77,16 @@ class TCPSegment:
         self.size = len(message) + 20 # TCP header is 20 bytes long
 
     def __repr__(self):
-        data = '> Camada de Transporte (TCP)\n'
+        data = '### Camada de Transporte (TCP) ###\n\n'
         # data += 'Porta fonte - ' + str(self.sender_port) + '\n'
         # data += 'Porta destino - ' + str(self.receiver_port) + '\n'
-        data += 'Número de sequência - ' + str(self.sequence_number) + '\n'
+        data += '\tNúmero de sequência      - ' + str(self.sequence_number) + '\n'
         if self.ACK:
-            data += 'Número de reconhecimento - ' + str(self.ack_number) + '\n'
+            data += '\tNúmero de reconhecimento - ' + str(self.ack_number) + '\n'
 
-        data += 'Bit ACK - ' + str(self.ACK) + '\n'
-        data += 'Bit SYN - ' + str(self.SYN) + '\n'
-        data += 'Bit FIN - ' + str(self.FIN) + '\n\n'
+        data += '\tBit ACK - ' + str(self.ACK) + '\n'
+        data += '\tBit SYN - ' + str(self.SYN) + '\n'
+        data += '\tBit FIN - ' + str(self.FIN) + '\n\n'
         return data
 
     def extract_message(segment):
@@ -107,10 +106,10 @@ class UDPDatagram:
         self.size = len(message) + 8 # UDP header is 8 bytes long
 
     def __repr__(self):
-        data = '> Camada de Transporte (UDP)\n'
+        data = '### Camada de Transporte (UDP) ###\n\n'
         # data += 'Porta fonte - ' + self.sender_port + '\n'
         # data += 'Porta destino - ' + self.receiver_port + '\n'
-        data += 'Tamanho - ' + str(self.size) + '\n\n'
+        data += '\tTamanho - ' + str(self.size) + '\n\n'
 
         return data
 
@@ -913,18 +912,28 @@ class Sniffer(Entity):
         entity = Entity.get(entity_list[0])
         if len(entity_list) > 1: # [router, port]
             link = entity.link_at_interface[int(entity_list[1])]
+
         else: # [host]
             link = entity.link
+
         link.add_sniffer(self)
         self.file = open(file_name, 'w')
 
     def write(self, frame):
-        self.file.write('Sniffer - ' + self.identifier + '\n')
-        if not shut_sniffers: print 'Sniffer - ' + self.identifier + '\n'
-        self.file.write(str(frame) + '\n')
-        if not shut_sniffers: print frame
+        header = '------------ Pacote ' + str(frame.id) + ' ------------\n'
+        data  = header
+        data += 'Sniffer - ' + self.identifier + '\n'
+        data += 'Time    - ' + str(self.get_time()) + '\n'
+        data += (len(header)-1) * '-' + '\n\n'
+        data += str(frame)
+        data += (len(header)-1) * '.' + '\n\n'
+
+        
+        if not shut_sniffers: print data
+        self.file.write(data)
 
     def finish(self):
+        print ("sniffer done: " + self.identifier)
         self.file.close()
 
 
