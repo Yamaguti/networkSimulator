@@ -11,6 +11,62 @@ event_pause   = 0
 stack_print   = 0
 shut_sniffers = 0
 
+class Message:
+    def __init__(self, string, messageType):
+        self.string  = string
+        self.type    = messageType
+
+    def __repr__(self):
+        data = '### Camada de Aplicação '
+
+        if self.type == "DNS query":
+            data += '(DNS) ###\n'
+            data += '\tPergunta DNS: ' + self.string + ' \n\n'
+
+        elif self.type == "DNS response":
+            data += '(DNS) ###\n'
+            data += '\tResposta DNS: ' + self.string + ' \n\n'
+
+        elif self.type == "TCP message":
+            data = ''
+
+        elif self.type == "HTTP command":
+            data += '(HTTP) ###\n'
+            data += '\tComando HTTP: ' + self.string + ' \n\n'
+
+        elif self.type == "HTTP response":
+            data += '(HTTP) ###\n'
+            data += '\tResposta HTTP: '
+            if len(self) > 200:
+                data += '[Conteudo de mensagem grande demais]\n\n'
+            else:
+                data += self.string + '\n\n'
+            
+
+        elif self.type == "FTP command":
+            data += '(FTP) ###\n'
+            data += '\tComando FTP: ' + self.string + ' \n\n'
+
+        elif self.type == "FTP response":
+            data += '(FTP) ###\n'
+            data += '\tResposta FTP: ' + self.string + ' \n\n'
+
+        elif self.type == "FTP file transfer":
+            data += '(HTTP) ###\n'
+            data += '\tFTP file transfer: '
+            if len(self) > 200:
+                data += '[Conteudo de arquivo grande demais]\n\n'
+            else:
+                data += self.string + '\n\n'
+
+        return data
+
+    def extract(self):
+        return self.string
+
+    def __len__(self):
+        return len(self.string)
+
 # An ethernet frame simple implementation
 class EthernetFrame:
     id_generator = 1
@@ -44,7 +100,7 @@ class IPPacket:
 
     def __repr__(self):
         data = str(self.transport_packet)
-        data += '### Camada de Rede (IP) ###\n\n'
+        data += '### Camada de Rede (IP) ###\n'
         data += '\tEndereço IP de origem  - ' + self.sender + '\n'
         data += '\tEndereço IP de destino - ' + self.receiver + '\n'
 
@@ -77,7 +133,8 @@ class TCPSegment:
         self.size = len(message) + 20 # TCP header is 20 bytes long
 
     def __repr__(self):
-        data = '### Camada de Transporte (TCP) ###\n\n'
+        data  = str(self.message)
+        data += '### Camada de Transporte (TCP) ###\n'
         # data += 'Porta fonte - ' + str(self.sender_port) + '\n'
         # data += 'Porta destino - ' + str(self.receiver_port) + '\n'
         data += '\tNúmero de sequência      - ' + str(self.sequence_number) + '\n'
@@ -96,8 +153,6 @@ class TCPSegment:
         self.sender_port = source
         self.receiver_port = destination
 
-
-
 # UDP datagram implementation
 class UDPDatagram:
     def __init__(self, message):
@@ -106,7 +161,8 @@ class UDPDatagram:
         self.size = len(message) + 8 # UDP header is 8 bytes long
 
     def __repr__(self):
-        data = '### Camada de Transporte (UDP) ###\n\n'
+        data  = str(self.message)
+        data += '### Camada de Transporte (UDP) ###\n'
         # data += 'Porta fonte - ' + self.sender_port + '\n'
         # data += 'Porta destino - ' + self.receiver_port + '\n'
         data += '\tTamanho - ' + str(self.size) + '\n\n'
@@ -155,7 +211,7 @@ class Event:
         if event.event_type == "order": #Simulator entry
             if event.command == "finish":
                 Simulator.finish()
-                print("finished")
+                print("Simulation Done")
                 return
 
             event.entity.do(event.time, event.command)
@@ -472,8 +528,8 @@ class TransportLayer:
             return
         
         elif hasattr(segment, 'is_dns_response'):
-            tokens = segment.extract_message().split()
-            self.host.proceed_after_query(tokens[0], tokens[1])
+            tokens = segment.extract_message().extract().split()
+            self.host.proceed_after_query(tokens[0], tokens[2])
             return
 
         else:
@@ -747,8 +803,8 @@ class DNSServer(Agent):
         return self.table[identifier]
 
     def receive_message(self, message, sender):
-        response = self.translate(message)
-        datagram = UDPDatagram(response + " "  + message)
+        response = self.translate(message.extract())
+        datagram = UDPDatagram(Message(response + " - "  + message.extract(), "DNS response"))
         datagram.is_dns_response = True
         self.host.transport_layer.send_datagram_to(sender, datagram)
             
@@ -762,13 +818,9 @@ class HTTPServer(Agent):
         Entity.__init__(self, word)
         self.file = open(HTTPServer.file_name, 'r')
 
-    # TODO remove
-    def process(self, packet):
-        packet.file = self.load()
-
     def receive_message(self, message, sender):
-        if message == "GET":
-            self.host.send_to(sender, self.file.read())
+        if message.extract() == "GET":
+            self.host.send_to(sender, Message(self.file.read(), "HTTP response"))
             
              # schedule connection close after 0.1 s.
             def close(event):
@@ -785,7 +837,7 @@ class HTTPClient(Agent):
     def do(self, time, command):
         tokens  = command.split()
         ip      = tokens[2]
-        message = "GET"
+        message = Message("GET", "HTTP command")
 
         if not '.' in ip: #DNS query required.
             self.do_DNS_query_and_send(ip, message)
@@ -794,11 +846,10 @@ class HTTPClient(Agent):
         self.host.send_to(ip, message)
 
     def receive_message(self, message, sender):
-        if debug: print ("recebi a resposta do GET. time: " + str(self.host.get_time()))
         return
 
     def do_DNS_query_and_send(self, query, message):
-        datagram = UDPDatagram(query)
+        datagram = UDPDatagram(Message(query, "DNS query"))
         self.waiting_for_response[query] = message
         self.host.transport_layer.send_datagram_to(self.host.network_layer.dns_server, datagram)
 
@@ -815,29 +866,22 @@ class FTPServer(Agent):
         Entity.__init__(self, word)
         self.file = open(FTPServer.file_name, 'r')
 
-    #TODO remover
-    def process(self, packet):
-        if ' GET ' in packet.command:
-            packet.file = self.load()
-        elif ' PUT ' in packet.command:
-            self.copy(packet.file)
-
     def receive_message(self, message, sender):
-        tokens = message.split()
+        tokens = message.extract().split()
         if tokens[0] == "USER":
-            self.host.send_to(sender, "331 332 OK")
+            self.host.send_to(sender, Message("331 332 OK", "FTP response"))
             return
 
         elif tokens[0] == "GET":
-            self.host.send_to(sender, self.file.read())
+            self.host.send_to(sender, Message(self.file.read(), "FTP file transfer"))
             return
 
         elif tokens[0] == "PUT":
-            self.host.send_to(sender, "200 OK")
+            self.host.send_to(sender, Message("200 OK", "FTP response"))
             return
 
         else:
-            self.host.send_to(sender, "200 OK")
+            self.host.send_to(sender, Message("200 OK", "FTP response"))
             return
         return
 
@@ -855,19 +899,19 @@ class FTPClient(Agent):
         message = tokens[1]
         ip      = tokens[2]
 
-        self.message_stack[ip] = ["QUIT"]
+        self.message_stack[ip] = [Message("QUIT", "FTP command")]
         if message == "PUT":
-            self.message_stack[ip].append(self.file.read())
+            self.message_stack[ip].append(Message(self.file.read(), "FTP file transfer"))
 
-        self.message_stack[ip].append(message)
+        self.message_stack[ip].append(Message(message, "FTP command"))
 
 
         if not '.' in ip: #DNS query required.
-            self.do_DNS_query_and_send(ip, "USER FTP_USER1 PASS 1234")
+            self.do_DNS_query_and_send(ip, Message("USER FTP_USER1 PASS 1234", "FTP command"))
             return
 
         #Doing FTP authentication.
-        self.host.send_to(ip, "USER: FTP_USER1 PASS:1234")
+        self.host.send_to(ip, Message("USER FTP_USER1 PASS 1234", "FTP command"))
 
     def receive_message(self, message, sender): 
         if self.message_stack[sender]: #if I have another message in the stack for sender
@@ -885,7 +929,7 @@ class FTPClient(Agent):
         #put message in stack to be delivered later
         self.message_stack[query].append(message)
         
-        datagram = UDPDatagram(query)
+        datagram = UDPDatagram(Message(query, "DNS query"))
         self.host.transport_layer.send_datagram_to(self.host.network_layer.dns_server, datagram)
 
     def proceed_after_query(self, response, query):
@@ -933,7 +977,6 @@ class Sniffer(Entity):
         self.file.write(data)
 
     def finish(self):
-        print ("sniffer done: " + self.identifier)
         self.file.close()
 
 
