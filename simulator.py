@@ -4,6 +4,7 @@
 import sys
 import heapq
 import traceback
+import random
 
 #Debug - behavior control variables
 debug         = 0
@@ -124,10 +125,10 @@ class TCPSegment:
         self.ACK = 0
         self.SYN = 0
         self.FIN = 0
-        self.sequence_number = 0
-        self.ack_number = 0
-        # self.sender_port = 0
-        # self.receiver_port = 0
+        self.sequence_number  = 0
+        self.ack_number       = 0
+        # self.origin_port      = 0
+        # self.destination_port = 0
         self.protocol = ""
         self.message = message
         self.size = len(message) + 20 # TCP header is 20 bytes long
@@ -135,8 +136,8 @@ class TCPSegment:
     def __repr__(self):
         data  = str(self.message)
         data += '### Camada de Transporte (TCP) ###\n'
-        # data += 'Porta fonte - ' + str(self.sender_port) + '\n'
-        # data += 'Porta destino - ' + str(self.receiver_port) + '\n'
+        data += '\tPorta fonte   - ' + str(self.origin_port) + '\n'
+        data += '\tPorta destino - ' + str(self.destination_port) + '\n'
         data += '\tNúmero de sequência      - ' + str(self.sequence_number) + '\n'
         if self.ACK:
             data += '\tNúmero de reconhecimento - ' + str(self.ack_number) + '\n'
@@ -157,14 +158,16 @@ class TCPSegment:
 class UDPDatagram:
     def __init__(self, message):
         self.protocol = "UDP"
-        self.message = message
+        self.origin_port      = 0
+        self.destination_port = 0
+        self.message          = message
         self.size = len(message) + 8 # UDP header is 8 bytes long
 
     def __repr__(self):
         data  = str(self.message)
         data += '### Camada de Transporte (UDP) ###\n'
-        # data += 'Porta fonte - ' + self.sender_port + '\n'
-        # data += 'Porta destino - ' + self.receiver_port + '\n'
+        data += '\tPorta fonte   - ' + str(self.origin_port) + '\n'
+        data += '\tPorta destino - ' + str(self.destination_port) + '\n'
         data += '\tTamanho - ' + str(self.size) + '\n\n'
 
         return data
@@ -211,7 +214,9 @@ class Event:
         if event.event_type == "order": #Simulator entry
             if event.command == "finish":
                 Simulator.finish()
-                print("Simulation Done")
+                print("+-----------------+")
+                print("| Simulation Done |")
+                print("+-----------------+")
                 return
 
             event.entity.do(event.time, event.command)
@@ -341,19 +346,19 @@ class Host(Entity):
     def set_ips(host, my_ip, standard_router, dns_server):
         host.network_layer.set_ips(my_ip, standard_router, dns_server)
 
-    def send_to(host, ip, message):
+    def send_to(host, ip, message, origin_port, destination_port):
         if debug: print ("giving message: " + message + " to tranport")
-        host.transport_layer.send_message(ip, message)
+        host.transport_layer.send_message(ip, message, origin_port, destination_port)
 
-    def close_connection(host, sender):
-        host.transport_layer.close_connection(sender)
+    def close_connection(host, sender, origin_port, destination_port):
+        host.transport_layer.close_connection(sender, origin_port, destination_port)
 
     def proceed_after_query(host, response, query):
         host.agent.proceed_after_query(response, query)
         return
 
-    def process(host, message, sender):
-        host.agent.receive_message(message, sender)
+    def process(host, message, sender, origin_port, destination_port):
+        host.agent.receive_message(message, sender, origin_port, destination_port)
         return
 
 
@@ -505,7 +510,11 @@ class TransportLayer:
         self.sequence_numbers    = {}
         self.open_connections    = {}
         self.connection_state    = {}
-        
+
+
+    def get_unused_port(self):
+        return random.randint(1024, 10000)
+
 
     def set_layers(self):
         self.network_layer = self.host.network_layer
@@ -513,7 +522,6 @@ class TransportLayer:
 
     def receive_from_network_layer(self, packet):
         if debug: print ("Transport Layer @ " + self.host.__class__.__name__ + " " + self.host.identifier + ":"),
-        if debug: print ("message arrived")
         segment = packet.extract_segment()
 
         if debug: print (" ")
@@ -533,40 +541,43 @@ class TransportLayer:
             return
 
         else:
-            self.host.process(segment.extract_message(), packet.sender)
+            self.host.process(segment.extract_message(), packet.sender, segment.origin_port, segment.destination_port)
             return
         return
 
 
     ### TCP methods
-    def send_message(self, receiver, message):
-        if debug: print ("Transport Layer @ " + self.host.__class__.__name__ + " " + self.host.identifier + ":"),
-        if debug: print ("message arrived")
+    def send_message(self, receiver, message, origin_port, destination_port):
+        if debug: print ("Transport Layer @ " + self.host.__class__.__name__ + " " + self.host.identifier),
         if not receiver in self.open_connections: #if connection is not already open
             self.messages_to_be_send[receiver] = message
-            self.do_three_way_handshake(receiver) # send message after 'second handshake'
+            self.do_three_way_handshake(receiver, origin_port, destination_port) # send message after 'second handshake'
         else:
-            self.send_trough_open_connection(receiver, message)
+            self.send_trough_open_connection(receiver, message, origin_port, destination_port)
         return 
     
-    def send_trough_open_connection(self, receiver, message):
+    def send_trough_open_connection(self, receiver, message, origin_port, destination_port):
         application_segment                  = TCPSegment(message)
+        application_segment.origin_port      = origin_port
+        application_segment.destination_port = destination_port
         self.sequence_numbers[receiver]     += len(message)
         application_segment.sequence_number  = self.sequence_numbers[receiver]
         
         self.network_layer.deliver_to(receiver, application_segment, "TCP")
         return
 
-    def do_three_way_handshake(self, ip):
+    def do_three_way_handshake(self, ip, origin_port, destination_port):
         segment = TCPSegment("")
         segment.SYN = 1
-        segment.sequence_number = 1
-        segment.is_tcp_message  = 1
+        segment.sequence_number   = 1
+        segment.is_tcp_message    = 1
+        segment.origin_port       = origin_port
+        segment.destination_port  = destination_port
         self.sequence_numbers[ip] = 1
         self.network_layer.deliver_to(ip, segment, "TCP")
 
 
-    def close_connection(self, ip):
+    def close_connection(self, ip, origin_port, destination_port):
         self.messages_to_be_send.pop(ip, None)
         self.open_connections.pop(ip, None)
         
@@ -574,6 +585,8 @@ class TransportLayer:
         segment.is_tcp_message     = 1
         self.sequence_numbers[ip] += 1
         segment.sequence_number    = self.sequence_numbers[ip]
+        segment.origin_port        = origin_port
+        segment.destination_port   = destination_port
         segment.FIN                = 1
 
         self.connection_state[ip]  = "FIN WAIT 1"
@@ -587,6 +600,10 @@ class TransportLayer:
             response = TCPSegment("")
             response.SYN = 1
             response.ACK = 1
+            
+            response.origin_port      = segment.destination_port
+            response.destination_port = segment.origin_port
+
             response.sequence_number  = 2
             self.sequence_numbers[ip] = 2
             response.ack_number = segment.sequence_number + 1
@@ -605,12 +622,18 @@ class TransportLayer:
             response.ack_number        = segment.sequence_number + 1
             response.is_tcp_message    = 1
 
+            response.origin_port      = segment.destination_port
+            response.destination_port = segment.origin_port
+
             self.network_layer.deliver_to(ip, response, "TCP")
 
             message = self.messages_to_be_send.pop(ip, "")
-            application_segment                 = TCPSegment(message)
-            self.sequence_numbers[ip]          += len(message)
-            application_segment.sequence_number = self.sequence_numbers[ip]
+            application_segment                  = TCPSegment(message)
+            self.sequence_numbers[ip]            += len(message)
+            application_segment.sequence_number  = self.sequence_numbers[ip]
+
+            application_segment.origin_port      = segment.destination_port
+            application_segment.destination_port = segment.origin_port
 
             def send(event):
                 self.network_layer.deliver_to(ip, application_segment, "TCP")
@@ -620,9 +643,6 @@ class TransportLayer:
         
         elif self.is_third_handshake(segment):
             self.open_connections[ip] = True
-            if debug: print (" ")
-            if debug: print ("done")
-            if debug: print (" ")
             return
 
         elif self.is_close_wait_message(segment, ip):
@@ -636,18 +656,24 @@ class TransportLayer:
             new_segment.ack_number         = segment.sequence_number + 1
             new_segment.ACK                = 1
 
+            new_segment.origin_port        = segment.destination_port
+            new_segment.destination_port   = segment.origin_port
+
             self.connection_state[ip]  = "CLOSE WAIT"
             self.network_layer.deliver_to(ip, new_segment, "TCP")
 
             def send_fin(event):
-                segment = TCPSegment("")
-                segment.is_tcp_message     = 1
+                new_segment = TCPSegment("")
+                new_segment.is_tcp_message     = 1
                 self.sequence_numbers[ip] += 1
-                segment.sequence_number    = self.sequence_numbers[ip]
-                segment.FIN                = 1
+                new_segment.sequence_number    = self.sequence_numbers[ip]
+                new_segment.FIN                = 1
+
+                new_segment.origin_port        = segment.destination_port
+                new_segment.destination_port   = segment.origin_port
 
                 self.connection_state[ip]  = "LAST ACK"
-                self.network_layer.deliver_to(ip, segment, "TCP")
+                self.network_layer.deliver_to(ip, new_segment, "TCP")
 
             Event("message", self.host.get_time() + 0.1, send_fin)
 
@@ -657,6 +683,9 @@ class TransportLayer:
             self.sequence_numbers[ip] += 1
             new_segment.sequence_number    = self.sequence_numbers[ip]
             new_segment.ack_number         = segment.sequence_number + 1
+
+            new_segment.origin_port        = segment.destination_port
+            new_segment.destination_port   = segment.origin_port
             new_segment.ACK                = 1
 
             self.connection_state[ip]  = "TIME WAIT"
@@ -697,7 +726,9 @@ class TransportLayer:
         return False
 
     ### UDP methods
-    def send_datagram_to(self, ip, datagram):
+    def send_datagram_to(self, ip, datagram, origin_port, destination_port):
+        datagram.origin_port      = origin_port
+        datagram.destination_port = destination_port
         self.network_layer.deliver_to(ip, datagram, "UDP")
         
 
@@ -802,15 +833,13 @@ class DNSServer(Agent):
     def translate(self, identifier):
         return self.table[identifier]
 
-    def receive_message(self, message, sender):
+    def receive_message(self, message, sender, origin_port, destination_port):
         response = self.translate(message.extract())
         datagram = UDPDatagram(Message(response + " - "  + message.extract(), "DNS response"))
         datagram.is_dns_response = True
-        self.host.transport_layer.send_datagram_to(sender, datagram)
+        self.host.transport_layer.send_datagram_to(sender, datagram, destination_port, origin_port)
             
         
-
-
 class HTTPServer(Agent):
     file_name = 'http_index.txt'
 
@@ -818,13 +847,13 @@ class HTTPServer(Agent):
         Entity.__init__(self, word)
         self.file = open(HTTPServer.file_name, 'r')
 
-    def receive_message(self, message, sender):
+    def receive_message(self, message, sender, origin_port, destination_port):
         if message.extract() == "GET":
-            self.host.send_to(sender, Message(self.file.read(), "HTTP response"))
+            self.host.send_to(sender, Message(self.file.read(), "HTTP response"), destination_port, origin_port)
             
              # schedule connection close after 0.1 s.
             def close(event):
-                self.host.close_connection(sender)
+                self.host.close_connection(sender, destination_port, origin_port)
 
             Event("message", self.host.get_time() + 0.1, close)
         return
@@ -838,24 +867,25 @@ class HTTPClient(Agent):
         tokens  = command.split()
         ip      = tokens[2]
         message = Message("GET", "HTTP command")
+        port    = self.host.transport_layer.get_unused_port()
 
         if not '.' in ip: #DNS query required.
-            self.do_DNS_query_and_send(ip, message)
+            self.do_DNS_query_and_send(ip, message, port, 80)
             return
 
-        self.host.send_to(ip, message)
+        self.host.send_to(ip, message, port, 80)
 
-    def receive_message(self, message, sender):
+    def receive_message(self, message, sender, origin_port, destination_port):
         return
 
-    def do_DNS_query_and_send(self, query, message):
+    def do_DNS_query_and_send(self, query, message, origin_port, destination_port):
         datagram = UDPDatagram(Message(query, "DNS query"))
-        self.waiting_for_response[query] = message
-        self.host.transport_layer.send_datagram_to(self.host.network_layer.dns_server, datagram)
+        self.waiting_for_response[query] = (message, origin_port, destination_port)
+        self.host.transport_layer.send_datagram_to(self.host.network_layer.dns_server, datagram, origin_port, 53)
 
     def proceed_after_query(self, response, query):
-        message = self.waiting_for_response.pop(query, "")
-        self.host.send_to(response, message)
+        message, origin_port, destination_port = self.waiting_for_response.pop(query, "")
+        self.host.send_to(response, message, origin_port, destination_port)
         return
 
 
@@ -866,7 +896,7 @@ class FTPServer(Agent):
         Entity.__init__(self, word)
         self.file = open(FTPServer.file_name, 'r')
 
-    def receive_message(self, message, sender):
+    def receive_message(self, message, sender, origin_port, destination_port):
         tokens = message.extract().split()
         if tokens[0] == "USER":
             self.host.send_to(sender, Message("331 332 OK", "FTP response"))
@@ -900,6 +930,7 @@ class FTPClient(Agent):
         ip      = tokens[2]
 
         self.message_stack[ip] = [Message("QUIT", "FTP command")]
+
         if message == "PUT":
             self.message_stack[ip].append(Message(self.file.read(), "FTP file transfer"))
 
