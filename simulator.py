@@ -899,19 +899,19 @@ class FTPServer(Agent):
     def receive_message(self, message, sender, origin_port, destination_port):
         tokens = message.extract().split()
         if tokens[0] == "USER":
-            self.host.send_to(sender, Message("331 332 OK", "FTP response"))
+            self.host.send_to(sender, Message("331 332 OK", "FTP response"), destination_port, origin_port)
             return
 
         elif tokens[0] == "GET":
-            self.host.send_to(sender, Message(self.file.read(), "FTP file transfer"))
+            self.host.send_to(sender, Message(self.file.read(), "FTP file transfer"), destination_port, origin_port)
             return
 
         elif tokens[0] == "PUT":
-            self.host.send_to(sender, Message("200 OK", "FTP response"))
+            self.host.send_to(sender, Message("200 OK", "FTP response"), destination_port, origin_port)
             return
 
         else:
-            self.host.send_to(sender, Message("200 OK", "FTP response"))
+            self.host.send_to(sender, Message("200 OK", "FTP response"), destination_port, origin_port)
             return
         return
 
@@ -928,6 +928,7 @@ class FTPClient(Agent):
         tokens  = command.split()    
         message = tokens[1]
         ip      = tokens[2]
+        port    = self.host.transport_layer.get_unused_port()
 
         self.message_stack[ip] = [Message("QUIT", "FTP command")]
 
@@ -938,38 +939,38 @@ class FTPClient(Agent):
 
 
         if not '.' in ip: #DNS query required.
-            self.do_DNS_query_and_send(ip, Message("USER FTP_USER1 PASS 1234", "FTP command"))
+            self.do_DNS_query_and_send(ip, Message("USER FTP_USER1 PASS 1234", "FTP command"), port, 21)
             return
 
         #Doing FTP authentication.
-        self.host.send_to(ip, Message("USER FTP_USER1 PASS 1234", "FTP command"))
+        self.host.send_to(ip, Message("USER FTP_USER1 PASS 1234", "FTP command"), port, 21)
 
-    def receive_message(self, message, sender): 
+    def receive_message(self, message, sender, origin_port, destination_port): 
         if self.message_stack[sender]: #if I have another message in the stack for sender
             new_message = self.message_stack[sender].pop()
-            self.host.send_to(sender, new_message)
+            self.host.send_to(sender, new_message, destination_port, origin_port)
         
         else:
             #Close connection with server
             self.message_stack.pop(sender, None)
-            self.host.close_connection(sender)
+            self.host.close_connection(sender, destination_port, origin_port)
             
         return
 
-    def do_DNS_query_and_send(self, query, message):
+    def do_DNS_query_and_send(self, query, message, origin_port, destination_port):
         #put message in stack to be delivered later
-        self.message_stack[query].append(message)
+        self.message_stack[query].append((message, origin_port, destination_port))
         
         datagram = UDPDatagram(Message(query, "DNS query"))
-        self.host.transport_layer.send_datagram_to(self.host.network_layer.dns_server, datagram)
+        self.host.transport_layer.send_datagram_to(self.host.network_layer.dns_server, datagram, origin_port, 53)
 
     def proceed_after_query(self, response, query):
         #Change key of message stack from query to ip
         stack = self.message_stack.pop(query)
         self.message_stack[response] = stack
 
-        message = self.message_stack[response].pop()
-        self.host.send_to(response, message)
+        message, origin_port, destination_port = self.message_stack[response].pop()
+        self.host.send_to(response, message, origin_port, destination_port)
         return
 
 #define WELCOME_MSG "220 Service ready for new user.\n"
